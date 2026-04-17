@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Bell, Power } from "lucide-react";
+import { MapPin, Bell, Power, Wrench } from "lucide-react";
 import AppLogo from "@/components/AppLogo";
 import { LatLng } from "@/lib/navigationSafety";
 import { reverseGeocodePlace } from "@/lib/placeSearch";
@@ -300,13 +300,26 @@ const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
             </div>
           </div>
 
-          <button
-            onClick={onGoOnline}
-            className="w-full py-4 rounded-2xl bg-safe text-safe-foreground font-bold text-base transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-            <Power size={20} />
-            Go Online
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={onGoOnline}
+              className="py-4 rounded-2xl bg-safe text-safe-foreground font-bold text-base transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
+            >
+              <Power size={20} />
+              Go Online
+            </button>
+            <button
+              onClick={onGoOnline}
+              className="py-4 rounded-2xl border border-border bg-background text-foreground font-bold text-base transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
+            >
+              <Wrench size={20} />
+              Roadside Help
+            </button>
+          </div>
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">
+            Tap Roadside Help to open the Driver Dashboard and contact nearest
+            garages.
+          </p>
         </div>
       </div>
     </motion.div>
