@@ -1,9 +1,44 @@
 import { motion } from "framer-motion";
 import { Shield, Clock, MapPin, Route, CheckCircle } from "lucide-react";
+import { useMemo } from "react";
 
-interface TripSummaryScreenProps {}
+interface TripSummaryScreenProps {
+  onNavigate?: (screen: string) => void;
+}
+
+const DRIVER_LAST_RIDE_SCORE_KEY = "saferide_driver_last_ride_score";
 
 const TripSummaryScreen = (_props: TripSummaryScreenProps) => {
+  const driverScoreSummary = useMemo(() => {
+    try {
+      const raw = window.localStorage.getItem(DRIVER_LAST_RIDE_SCORE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.score !== "number") {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const scoreToneClass =
+    !driverScoreSummary || driverScoreSummary.score >= 85
+      ? "bg-safe/10"
+      : driverScoreSummary.score >= 65
+        ? "bg-amber-100"
+        : "bg-red-100";
+
+  const scoreLabel =
+    !driverScoreSummary || driverScoreSummary.score >= 85
+      ? "Excellent attentiveness"
+      : driverScoreSummary.score >= 65
+        ? "Moderate attentiveness"
+        : "High drowsiness risk observed";
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -21,18 +56,51 @@ const TripSummaryScreen = (_props: TripSummaryScreenProps) => {
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-safe/10 rounded-2xl p-5 flex items-center gap-4"
+          className={`${scoreToneClass} rounded-2xl p-5 flex items-center gap-4`}
         >
           <div className="w-12 h-12 rounded-2xl bg-safe flex items-center justify-center">
             <CheckCircle size={24} className="text-safe-foreground" />
           </div>
           <div>
-            <p className="font-bold text-foreground">Trip Completed Safely</p>
-            <p className="text-xs text-muted-foreground">
-              No safety incidents reported
+            <p className="font-bold text-foreground">
+              {driverScoreSummary ? `Driver Safety Score: ${driverScoreSummary.score}/100` : "Trip Completed Safely"}
             </p>
+            <p className="text-xs text-muted-foreground">{scoreLabel}</p>
           </div>
         </motion.div>
+
+        {driverScoreSummary && (
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.06 }}
+            className="bg-card rounded-2xl p-5 border border-border space-y-3"
+          >
+            <p className="text-sm font-semibold text-muted-foreground">Driver Behaviour Snapshot</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-muted/60 p-3">
+                <p className="text-[10px] text-muted-foreground">Avg fatigue</p>
+                <p className="text-sm font-bold text-foreground">
+                  {Math.round((driverScoreSummary.avgFatigue || 0) * 100)}%
+                </p>
+              </div>
+              <div className="rounded-xl bg-muted/60 p-3">
+                <p className="text-[10px] text-muted-foreground">Avg distraction</p>
+                <p className="text-sm font-bold text-foreground">
+                  {Math.round((driverScoreSummary.avgDistraction || 0) * 100)}%
+                </p>
+              </div>
+              <div className="rounded-xl bg-muted/60 p-3">
+                <p className="text-[10px] text-muted-foreground">Warning alerts</p>
+                <p className="text-sm font-bold text-foreground">{driverScoreSummary.warningAlerts || 0}</p>
+              </div>
+              <div className="rounded-xl bg-muted/60 p-3">
+                <p className="text-[10px] text-muted-foreground">Critical alerts</p>
+                <p className="text-sm font-bold text-foreground">{driverScoreSummary.criticalAlerts || 0}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Ride details */}
         <motion.div

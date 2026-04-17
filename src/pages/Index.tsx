@@ -249,6 +249,8 @@ const Index = () => {
             driverPhone={driverCredential}
             onJoinedRide={(ride) => {
               setDriverJoinedRideTrip({
+                rideId: ride.rideId,
+                rideOtpCode: ride.otpCode,
                 sourceLabel: ride.sourceLabel,
                 destinationLabel: ride.destinationLabel,
                 source: ride.source,
