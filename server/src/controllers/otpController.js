@@ -77,12 +77,12 @@ export const sendOtp = async (phoneNumber, userType = "passenger") => {
     const expiresAt = Date.now() + expiresIn;
 
     // Send via SMS
-    const smsSent = await sendOtpViaSms(phoneNumber, otp);
+    const smsResult = await sendOtpViaSms(phoneNumber, otp);
 
-    if (!smsSent) {
+    if (!smsResult.success) {
       return {
         success: false,
-        message: "Failed to send OTP. Please try again.",
+        message: smsResult.error || "Failed to send OTP. Please try again.",
       };
     }
 

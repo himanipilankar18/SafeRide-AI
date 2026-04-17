@@ -30,6 +30,8 @@ const cleanContact = (contact) => ({
   phone: normalizePhoneNumber(contact?.phone),
 });
 
+const isValidE164 = (phone) => /^\+[1-9]\d{7,14}$/.test(String(phone || ""));
+
 const cleanPoliceRecipient = (recipient) => ({
   name: String(recipient?.name || "Police Control Room").trim(),
   phone: normalizePhoneNumber(recipient?.phone),
@@ -55,7 +57,7 @@ const buildEmergencyMessage = ({
   timestamp,
 }) => {
   const passengerText =
-    passenger?.phoneNumber || passenger?.name || "Passenger";
+    passenger?.name || passenger?.phoneNumber || "Passenger";
   const driverText =
     driver?.name || driver?.phoneNumber
       ? `${driver?.name || "Assigned driver"}${driver?.phoneNumber ? ` (${driver.phoneNumber})` : ""}`
@@ -79,7 +81,7 @@ const buildEmergencyMessage = ({
     `Destination: ${destinationText}`,
     `Current location: ${locationText}`,
     `Map: ${mapLink}`,
-    `Time: ${timestamp || new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
+    `Time: ${timestamp || new Date().toISOString()}`,
     "Please call them or contact emergency services if they do not respond.",
   ].join("\n");
 };
@@ -139,9 +141,7 @@ router.post("/alert", async (req, res) => {
       });
     }
 
-    const recipients = contacts
-      .map(cleanContact)
-      .filter((contact) => contact.phone);
+    const recipients = contacts.map(cleanContact).filter((contact) => contact.phone);
     if (recipients.length === 0) {
       return res.status(400).json({
         success: false,
@@ -157,15 +157,25 @@ router.post("/alert", async (req, res) => {
       timestamp,
     });
     const results = await Promise.all(
-      recipients.map(async (contact) => ({
-        contact,
-        ...(await sendSms(contact.phone, body)),
-      })),
+      recipients.map(async (contact) => {
+        if (!isValidE164(contact.phone)) {
+          return {
+            contact,
+            success: false,
+            error: "Invalid phone format. Use E.164 format, for example +919876543210.",
+          };
+        }
+
+        return {
+          contact,
+          ...(await sendSms(contact.phone, body)),
+        };
+      }),
     );
 
     const sentCount = results.filter((result) => result.success).length;
 
-    res.status(sentCount > 0 ? 200 : 502).json({
+    res.status(200).json({
       success: sentCount > 0,
       message: `Sent ${sentCount} of ${recipients.length} emergency alerts`,
       sentCount,

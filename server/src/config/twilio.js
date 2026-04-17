@@ -10,82 +10,79 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 const otpProvider = (process.env.OTP_PROVIDER || "twilio").toLowerCase();
+const smsMode = (process.env.SMS_MODE || "direct").toLowerCase();
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-const useMockProvider = otpProvider === "mock";
-const hasTwilioConfig = Boolean(accountSid && authToken && twilioPhoneNumber);
-const isProbablyTwilioNumber = (value) => {
-  const normalized = String(value || "").trim();
-  return /^\+[1-9]\d{7,14}$/.test(normalized);
-};
+const hasPlaceholderCredentials =
+  !accountSid ||
+  !authToken ||
+  !twilioPhoneNumber ||
+  /x{6,}/i.test(accountSid) ||
+  authToken.includes("your_auth_token_here") ||
+  twilioPhoneNumber === "+1234567890";
+const hasTwilioConfig = Boolean(accountSid && authToken && twilioPhoneNumber) && !hasPlaceholderCredentials;
+const hasSmsConfig = hasTwilioConfig;
 
-if (useMockProvider) {
-  console.warn("⚠️ OTP_PROVIDER=mock. Using mock OTP mode for testing.");
-} else if (otpProvider === "verify") {
-  console.log("ℹ️ OTP_PROVIDER=verify. Twilio Verify flow enabled.");
-} else if (!hasTwilioConfig) {
-  console.warn(
-    "⚠️ Twilio credentials not configured. Using mock mode for testing.",
-  );
+if (otpProvider === "mock" || !hasSmsConfig) {
+  console.warn("⚠️ Twilio credentials not configured. Using mock mode for testing.");
 }
 
-const client =
-  !useMockProvider && hasTwilioConfig ? twilio(accountSid, authToken) : null;
+const client = hasSmsConfig ? twilio(accountSid, authToken) : null;
 
-/**
- * Send OTP via SMS using Twilio
- * @param {string} phoneNumber - Recipient's phone number
- * @param {string} otp - 6-digit OTP code
- * @returns {Promise<boolean>} - Success status
- */
+const asErrorMessage = (error) =>
+  error instanceof Error ? error.message : "Unknown SMS error";
+
 export const sendOtpViaSms = async (phoneNumber, otp) => {
-  try {
-    if (!client) {
-      console.log(`[MOCK] Would send OTP "${otp}" to ${phoneNumber}`);
-      return true;
-    }
+  const body = `SafeRide Security Code: ${otp}\n\nEnter this code to verify your ${phoneNumber} account. Valid for 10 minutes.`;
 
-    const message = await client.messages.create({
-      body: `SafeRide Security Code: ${otp}\n\nEnter this code to verify your ${phoneNumber} account. Valid for 10 minutes.`,
-      from: twilioPhoneNumber,
-      to: phoneNumber,
-    });
-
-    console.log(`✅ SMS sent to ${phoneNumber} with SID: ${message.sid}`);
-    return true;
-  } catch (error) {
-    console.error(`❌ Error sending SMS to ${phoneNumber}:`, error.message);
-    return false;
+  if (!client) {
+    console.log(`[MOCK] Would send OTP "${otp}" to ${phoneNumber}`);
+    return { success: true, sid: "mock-otp-message" };
   }
-};
 
-export const sendSms = async (phoneNumber, body) => {
   try {
-    if (!client) {
-      console.log(`[MOCK] Would send SMS to ${phoneNumber}: ${body}`);
-      return { success: true, sid: "mock-message" };
-    }
-
-    if (!isProbablyTwilioNumber(twilioPhoneNumber)) {
-      return {
-        success: false,
-        error:
-          "TWILIO_PHONE_NUMBER must be a Twilio-owned SMS-capable number in E.164 format, for example +14155552671.",
-      };
-    }
-
     const message = await client.messages.create({
       body,
       from: twilioPhoneNumber,
       to: phoneNumber,
     });
-
-    console.log(`✅ SMS sent to ${phoneNumber} with SID: ${message.sid}`);
     return { success: true, sid: message.sid };
   } catch (error) {
-    console.error(`❌ Error sending SMS to ${phoneNumber}:`, error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: asErrorMessage(error) };
+  }
+};
+
+export const sendSms = async (phoneNumber, body) => {
+  if (!client) {
+    console.log(`[MOCK] Would send SMS to ${phoneNumber}: ${body}`);
+    return { success: true, sid: "mock-message" };
+  }
+
+  if (smsMode !== "direct") {
+    return {
+      success: false,
+      error: "SOS SMS is configured for Twilio Direct Messages API only. Set SMS_MODE=direct.",
+    };
+  }
+
+  if (!hasTwilioConfig) {
+    return {
+      success: false,
+      error:
+        "SOS SMS requires a valid Twilio SMS-capable TWILIO_PHONE_NUMBER for Direct Messages API.",
+    };
+  }
+
+  try {
+    const message = await client.messages.create({
+      body,
+      from: twilioPhoneNumber,
+      to: phoneNumber,
+    });
+    return { success: true, sid: message.sid };
+  } catch (error) {
+    return { success: false, error: asErrorMessage(error) };
   }
 };
 

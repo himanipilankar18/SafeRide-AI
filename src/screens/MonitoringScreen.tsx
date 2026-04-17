@@ -29,6 +29,8 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import BottomNav from "@/components/BottomNav";
+import EmergencyAlert from "@/components/EmergencyAlert";
 
 type MapMode = "2d" | "offline";
 
@@ -265,6 +267,7 @@ const MonitoringScreen = ({
   const [replacementDriver, setReplacementDriver] =
     useState<NearbyDriver | null>(null);
   const [isFindingReplacement, setIsFindingReplacement] = useState(false);
+  const [showEmergencyAlert, setShowEmergencyAlert] = useState(false);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -1066,15 +1069,49 @@ const MonitoringScreen = ({
             </div>
             <button
               type="button"
-              onClick={onEmergency}
+              onClick={() => setShowEmergencyAlert(true)}
               className="grid h-11 w-11 place-items-center rounded-full bg-red-600 text-white shadow-lg"
               aria-label="Emergency"
             >
               <Phone size={21} />
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowEmergencyAlert(true)}
+            className="mt-3 w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg"
+          >
+            Call Emergency
+          </button>
         </div>
       )}
+
+      <EmergencyAlert
+        open={showEmergencyAlert}
+        onClose={() => setShowEmergencyAlert(false)}
+        payloadBase={{
+          passenger: {
+            phoneNumber: window.localStorage.getItem("phoneNumber") || "passenger-demo",
+            name: window.localStorage.getItem("name") || "Passenger",
+          },
+          driver: {
+            name: tripConfig.driverName || "Assigned driver",
+            phoneNumber: tripConfig.driverPhone || "",
+          },
+          trip: {
+            sourceLabel: tripConfig.sourceLabel,
+            source: tripConfig.source,
+            destinationLabel: tripConfig.destinationLabel,
+            destination: tripConfig.destination,
+          },
+          location: currentLocation,
+        }}
+      />
+
+      <div className="absolute inset-x-0 bottom-0 z-[1200]">
+        <BottomNav active="monitoring" onNavigate={onNavigate} />
+      </div>
     </motion.div>
   );
 };
