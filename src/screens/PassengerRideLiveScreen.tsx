@@ -16,6 +16,14 @@ interface PassengerRideLiveScreenProps {
   tripId?: string;
 }
 
+type EmergencyContact = {
+  name: string;
+  phone: string;
+  selectedForSos?: boolean;
+};
+
+const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
+
 const driverIcon = L.divIcon({
   className: "",
   html: '<div style="width:18px;height:18px;border-radius:9999px;background:#16a34a;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);"></div>',
@@ -45,6 +53,11 @@ const PassengerRideLiveScreen = ({
   const [connectionStatus, setConnectionStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
+  const [isSendingSos, setIsSendingSos] = useState(false);
+  const [sosStatus, setSosStatus] = useState<string | null>(null);
+  const [sosStatusType, setSosStatusType] = useState<"info" | "success" | "error">(
+    "info",
+  );
 
   const liveTripId = useMemo(
     () => tripId || ride.otpCode,
@@ -164,6 +177,87 @@ const PassengerRideLiveScreen = ({
       setConnectionStatus("connected");
     }
   }, [isConnected]);
+
+  const sendSosAlert = async () => {
+    let contacts: EmergencyContact[] = [];
+
+    try {
+      const saved = window.localStorage.getItem(EMERGENCY_CONTACTS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          contacts = parsed
+            .map((item) => ({
+              name: String(item?.name || "Emergency contact").trim(),
+              phone: String(item?.phone || "").trim(),
+              selectedForSos:
+                typeof item?.selectedForSos === "boolean"
+                  ? item.selectedForSos
+                  : true,
+            }))
+            .filter((item) => item.phone && item.selectedForSos);
+        }
+      }
+    } catch {
+      contacts = [];
+    }
+
+    if (contacts.length === 0) {
+      setSosStatus("No emergency contacts saved. Add contacts from the Emergency screen first.");
+      setSosStatusType("error");
+      return;
+    }
+
+    setIsSendingSos(true);
+    setSosStatus("Sending SOS alerts...");
+    setSosStatusType("info");
+
+    try {
+      const passengerPhone = window.localStorage.getItem("phoneNumber") || "passenger-demo";
+      const fallbackLocation =
+        rideDetails.lat !== null && rideDetails.lng !== null
+          ? { lat: rideDetails.lat, lng: rideDetails.lng }
+          : null;
+      const location = driverLocation || fallbackLocation;
+
+      const response = await fetch(`${apiBase}/emergency/alert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contacts,
+          passenger: {
+            phoneNumber: passengerPhone,
+          },
+          driver: {
+            name: rideDetails.driverName,
+            phoneNumber: "N/A",
+            vehicleDetails: `${rideDetails.carModel} (${rideDetails.carNumber})`,
+          },
+          trip: {
+            sourceLabel: "Live trip",
+            destinationLabel: "Destination",
+          },
+          location,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to send SOS alerts");
+      }
+
+      setSosStatus(data.message || "SOS alerts sent.");
+      setSosStatusType("success");
+    } catch (error) {
+      setSosStatus(
+        error instanceof Error ? error.message : "Failed to send SOS alerts.",
+      );
+      setSosStatusType("error");
+    } finally {
+      setIsSendingSos(false);
+    }
+  };
 
   const center = driverLocation || { lat: 12.9716, lng: 77.5946 };
 
@@ -299,27 +393,25 @@ const PassengerRideLiveScreen = ({
           <Button
             size="sm"
             variant="destructive"
-            onClick={() =>
-              setAlerts((prev) =>
-                [
-                  {
-                    severity: "warning",
-                    message: "Passenger requested safety check",
-                    location: driverLocation || {
-                      lat: ride.lat ?? 0,
-                      lng: ride.lng ?? 0,
-                    },
-                    riskScore: 0,
-                    trend: "flat",
-                  },
-                  ...prev,
-                ].slice(0, 4),
-              )
-            }
+            onClick={sendSosAlert}
+            disabled={isSendingSos}
           >
-            SOS
+            {isSendingSos ? "Sending..." : "SOS"}
           </Button>
         </div>
+        {sosStatus && (
+          <p
+            className={`mt-2 text-xs ${
+              sosStatusType === "success"
+                ? "text-green-600"
+                : sosStatusType === "error"
+                  ? "text-red-600"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {sosStatus}
+          </p>
+        )}
       </div>
     </motion.div>
   );
