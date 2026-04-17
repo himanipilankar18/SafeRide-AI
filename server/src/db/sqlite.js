@@ -241,6 +241,22 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
   `);
 
   await runQuery(`
+    CREATE TABLE IF NOT EXISTS emergency_contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      driver_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await runQuery(`
+    CREATE INDEX IF NOT EXISTS idx_emergency_contacts_driver
+    ON emergency_contacts (driver_id)
+  `);
+
+  await runQuery(`
     CREATE TABLE IF NOT EXISTS garage_cache (
       garage_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -543,6 +559,62 @@ export const getDriverOnboardingByPhone = async (phone) => {
   }
 
   return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [String(phone)]);
+};
+
+export const createEmergencyContact = async ({ driverId, name, phone }) => {
+  if (!driverId || !name || !phone) {
+    throw new Error("createEmergencyContact requires driverId, name, and phone");
+  }
+
+  const result = await runQuery(
+    `INSERT INTO emergency_contacts (driver_id, name, phone) VALUES (?, ?, ?)`,
+    [Number(driverId), String(name).trim(), String(phone).trim()]
+  );
+
+  return getOne(`SELECT * FROM emergency_contacts WHERE id = ?`, [result.lastID]);
+};
+
+export const getEmergencyContactsByDriverId = async (driverId) => {
+  if (!driverId) {
+    throw new Error("getEmergencyContactsByDriverId requires driverId");
+  }
+
+  return getAll(
+    `SELECT * FROM emergency_contacts WHERE driver_id = ? ORDER BY id DESC`,
+    [Number(driverId)]
+  );
+};
+
+export const getLatestLiveLocationByDriverId = async (driverId) => {
+  if (!driverId) {
+    throw new Error("getLatestLiveLocationByDriverId requires driverId");
+  }
+
+  return getOne(
+    `SELECT driver_id, lat, lng, timestamp
+     FROM trip_live_locations
+     WHERE driver_id = ?
+     ORDER BY timestamp DESC
+     LIMIT 1`,
+    [Number(driverId)]
+  );
+};
+
+export const deleteEmergencyContactById = async (id) => {
+  if (!id) {
+    throw new Error("deleteEmergencyContactById requires id");
+  }
+
+  const existing = await getOne(`SELECT * FROM emergency_contacts WHERE id = ?`, [Number(id)]);
+  if (!existing) {
+    return { deleted: false, contact: null };
+  }
+
+  const result = await runQuery(`DELETE FROM emergency_contacts WHERE id = ?`, [Number(id)]);
+  return {
+    deleted: result.changes > 0,
+    contact: existing,
+  };
 };
 
 export const createRideOtp = async ({

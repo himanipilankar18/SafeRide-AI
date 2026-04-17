@@ -16,13 +16,18 @@ const LIVE_MIN_THRESHOLD = 0.86;
 const REGISTER_PAIRWISE_THRESHOLD = 0.68;
 
 const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificationScreenProps) => {
+  const [driverId, setDriverId] = useState<number | null>(null);
   const [driverName, setDriverName] = useState("");
   const [carNumber, setCarNumber] = useState("");
   const [carModel, setCarModel] = useState("");
   const [faceCredential, setFaceCredential] = useState(phoneNumber || "driver-demo");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [isSavingEmergencyContact, setIsSavingEmergencyContact] = useState(false);
+  const [emergencyContactSaved, setEmergencyContactSaved] = useState(false);
 
   const [isOpeningCamera, setIsOpeningCamera] = useState(false);
   const [showInAppCamera, setShowInAppCamera] = useState(false);
@@ -322,9 +327,46 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
       if (!response.ok || !data?.success) {
         throw new Error(data?.message || "Failed to save onboarding profile");
       }
+
+      const savedDriverId = Number(data?.onboarding?.user_id || 0);
+      if (savedDriverId > 0) {
+        setDriverId(savedDriverId);
+      }
+
       setProfileSaved(true);
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const saveEmergencyContact = async (currentDriverId: number) => {
+    if (!currentDriverId) {
+      throw new Error("Driver profile must be saved before adding emergency contact");
+    }
+    if (!emergencyContactName.trim() || !emergencyContactPhone.trim()) {
+      throw new Error("Emergency contact name and phone are required");
+    }
+
+    setIsSavingEmergencyContact(true);
+    try {
+      const response = await fetch(`${apiBase}/driver/emergency-contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          driverId: currentDriverId,
+          name: emergencyContactName.trim(),
+          phone: emergencyContactPhone.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to save emergency contact");
+      }
+
+      setEmergencyContactSaved(true);
+    } finally {
+      setIsSavingEmergencyContact(false);
     }
   };
 
@@ -338,6 +380,24 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
         if (cancelled || !response.ok || !data?.success || !data?.onboarding) return;
 
         const onboarding = data.onboarding;
+        const loadedDriverId = Number(onboarding.user_id || 0);
+        if (loadedDriverId > 0) {
+          setDriverId(loadedDriverId);
+
+          try {
+            const contactsResponse = await fetch(`${apiBase}/driver/emergency-contact/${loadedDriverId}`);
+            const contactsData = await contactsResponse.json();
+            if (contactsResponse.ok && contactsData?.success && Array.isArray(contactsData.contacts) && contactsData.contacts.length > 0) {
+              const first = contactsData.contacts[0];
+              setEmergencyContactName(first.name || "");
+              setEmergencyContactPhone(first.phone || "");
+              setEmergencyContactSaved(true);
+            }
+          } catch {
+            // noop
+          }
+        }
+
         setDriverName(onboarding.driver_name || "");
         setCarNumber(onboarding.car_number || "");
         setCarModel(onboarding.car_model || "");
@@ -571,6 +631,25 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
           <Input placeholder="Car number (e.g. MH 02 AB 1234)" value={carNumber} onChange={(e) => setCarNumber(e.target.value)} />
           <Input placeholder="Car model (e.g. Hyundai i20)" value={carModel} onChange={(e) => setCarModel(e.target.value)} />
           <Input placeholder="Face credential" value={faceCredential} onChange={(e) => setFaceCredential(e.target.value)} />
+          <Input
+            placeholder="Emergency contact name"
+            value={emergencyContactName}
+            onChange={(e) => {
+              setEmergencyContactName(e.target.value);
+              setEmergencyContactSaved(false);
+            }}
+          />
+          <Input
+            placeholder="Emergency contact phone"
+            value={emergencyContactPhone}
+            onChange={(e) => {
+              setEmergencyContactPhone(e.target.value);
+              setEmergencyContactSaved(false);
+            }}
+          />
+          {emergencyContactSaved && (
+            <p className="text-xs font-medium text-safe">Emergency contact saved.</p>
+          )}
           <button
             type="button"
             onClick={async () => {
@@ -581,15 +660,29 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
                   faceRegistered: hasLiveMlVerification,
                   faceImage: capturesByStage.CENTER || null,
                 });
-                setMessage("Driver details saved.");
+
+                if (driverId) {
+                  await saveEmergencyContact(driverId);
+                } else {
+                  const onboardingResponse = await fetch(`${apiBase}/auth/driver-onboarding/${encodeURIComponent(phoneNumber)}`);
+                  const onboardingData = await onboardingResponse.json();
+                  const fetchedDriverId = Number(onboardingData?.onboarding?.user_id || 0);
+                  if (!fetchedDriverId) {
+                    throw new Error("Driver ID not found. Save driver details again.");
+                  }
+                  setDriverId(fetchedDriverId);
+                  await saveEmergencyContact(fetchedDriverId);
+                }
+
+                setMessage("Driver details and emergency contact saved.");
               } catch (e) {
                 setError(toUserFriendlyError("Failed to save driver details", e));
               }
             }}
-            disabled={isSavingProfile}
+            disabled={isSavingProfile || isSavingEmergencyContact}
             className="w-full py-3 rounded-xl bg-foreground text-background font-semibold disabled:opacity-60"
           >
-            {isSavingProfile ? "Saving..." : "Save Driver Details"}
+            {isSavingProfile || isSavingEmergencyContact ? "Saving..." : "Save Driver Details"}
           </button>
         </div>
 
