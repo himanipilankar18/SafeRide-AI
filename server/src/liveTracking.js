@@ -221,4 +221,16 @@ function broadcastToTrip(tripId, message) {
   }
 }
 
+export function emitTripEvent(tripId, event) {
+  if (!tripId || !event) {
+    return;
+  }
+
+  broadcastToTrip(String(tripId), {
+    ...event,
+    tripId: String(tripId),
+    timestamp: Date.now(),
+  });
+}
+
 export { activeTrips };

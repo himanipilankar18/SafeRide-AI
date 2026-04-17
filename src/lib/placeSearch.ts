@@ -5,7 +5,57 @@ export type PlaceSuggestion = LatLng & {
 };
 
 const NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org/search";
-const LANDMARK_QUERIES = ["landmark", "hospital", "mall", "metro station", "park"];
+const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
+const LANDMARK_QUERIES = [
+  "landmark",
+  "college",
+  "institute",
+  "university",
+  "school",
+  "hospital",
+  "mall",
+  "metro station",
+  "park",
+];
+
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const haversineMeters = (a: LatLng, b: LatLng) => {
+  const earthRadiusMeters = 6371000;
+  const dLat = toRadians(b.lat - a.lat);
+  const dLng = toRadians(b.lng - a.lng);
+  const q =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(a.lat)) *
+      Math.cos(toRadians(b.lat)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(q));
+};
+
+const compactDisplayName = (displayName: string) =>
+  displayName
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(", ");
+
+const firstValidField = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+};
+
+const isRoadLike = (value: string) => {
+  const lower = value.toLowerCase();
+  return lower.includes("road") || lower.includes("marg") || lower.includes("street") || lower.includes("lane");
+};
 
 const normalizePlace = (item: Record<string, unknown>): PlaceSuggestion | null => {
   const lat = Number(item.lat);
@@ -104,4 +154,89 @@ export const searchNearbyLandmarks = async (center: LatLng, limit = 5): Promise<
   }
 
   return results;
+};
+
+export const reverseGeocodePlace = async (location: LatLng): Promise<string | null> => {
+  const reverseUrl = new URL(NOMINATIM_REVERSE_URL);
+  reverseUrl.searchParams.set("lat", String(location.lat));
+  reverseUrl.searchParams.set("lon", String(location.lng));
+  reverseUrl.searchParams.set("format", "jsonv2");
+  reverseUrl.searchParams.set("zoom", "18");
+  reverseUrl.searchParams.set("addressdetails", "1");
+  reverseUrl.searchParams.set("namedetails", "1");
+
+  try {
+    const response = await fetch(reverseUrl.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      display_name?: unknown;
+      name?: unknown;
+      address?: unknown;
+      namedetails?: unknown;
+    };
+
+    const address =
+      payload.address && typeof payload.address === "object"
+        ? (payload.address as Record<string, unknown>)
+        : {};
+    const namedetails =
+      payload.namedetails && typeof payload.namedetails === "object"
+        ? (payload.namedetails as Record<string, unknown>)
+        : {};
+
+    const primaryName =
+      (typeof payload.name === "string" && payload.name.trim())
+        ? payload.name.trim()
+        : firstValidField(namedetails, ["name", "name:en"]);
+
+    const poiName =
+      firstValidField(address, [
+        "college",
+        "university",
+        "school",
+        "hospital",
+        "amenity",
+        "building",
+        "attraction",
+      ]) || primaryName;
+
+    const areaName = firstValidField(address, ["suburb", "neighbourhood", "city_district", "city", "town", "village"]);
+
+    if (poiName && !isRoadLike(poiName)) {
+      if (areaName && !poiName.toLowerCase().includes(areaName.toLowerCase())) {
+        return `${poiName}, ${areaName}`;
+      }
+      return poiName;
+    }
+
+    const nearby = await searchNearbyLandmarks(location, 8);
+    if (nearby.length > 0) {
+      const nearest = nearby
+        .map((place) => ({
+          place,
+          distance: haversineMeters(location, { lat: place.lat, lng: place.lng }),
+        }))
+        .sort((a, b) => a.distance - b.distance)[0];
+
+      if (nearest.distance <= 350) {
+        return compactDisplayName(nearest.place.label);
+      }
+    }
+
+    if (typeof payload.display_name !== "string" || !payload.display_name.trim()) {
+      return null;
+    }
+
+    return compactDisplayName(payload.display_name);
+  } catch {
+    return null;
+  }
 };

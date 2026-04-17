@@ -10,14 +10,47 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const defaultScriptPath = path.resolve(__dirname, "../../python/face_auth_app.py");
-const pythonCmd = process.env.FACE_PYTHON_CMD || "python3";
 const scriptPath = process.env.FACE_SCRIPT_PATH || defaultScriptPath;
 
+const getPythonCommandConfig = () => {
+  const custom = process.env.FACE_PYTHON_CMD?.trim();
+  if (custom) {
+    return {
+      command: custom,
+      preArgs: [],
+    };
+  }
+
+  if (process.platform === "win32") {
+    return {
+      command: "py",
+      preArgs: ["-3"],
+    };
+  }
+
+  return {
+    command: "python3",
+    preArgs: [],
+  };
+};
+
 const launchFaceFlow = (args = []) => {
-  const child = spawn(pythonCmd, [scriptPath, ...args], {
+  if (!fs.existsSync(scriptPath)) {
+    throw new Error(`Face script not found at ${scriptPath}`);
+  }
+
+  const pythonConfig = getPythonCommandConfig();
+
+  const child = spawn(pythonConfig.command, [...pythonConfig.preArgs, scriptPath, ...args], {
     cwd: path.dirname(scriptPath),
     detached: true,
     stdio: "ignore",
+    windowsHide: false,
+    shell: false,
+  });
+
+  child.on("error", (error) => {
+    console.error("Failed to spawn face process:", error);
   });
 
   child.unref();
@@ -25,9 +58,12 @@ const launchFaceFlow = (args = []) => {
 };
 
 router.get("/status", (req, res) => {
+  const pythonConfig = getPythonCommandConfig();
   res.json({
     success: true,
-    pythonCmd,
+    pythonCmd: pythonConfig.command,
+    pythonPreArgs: pythonConfig.preArgs,
+    platform: process.platform,
     scriptPath,
     scriptExists: fs.existsSync(scriptPath),
   });

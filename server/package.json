@@ -7,7 +7,6 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test:db": "node src/scripts/testMongoConnection.js",
     "test:sqlite": "node src/scripts/testSqliteModule.js"
   },
   "dependencies": {
@@ -16,7 +15,6 @@
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.0",
-    "mongoose": "^7.0.0",
     "sqlite3": "^6.0.1",
     "twilio": "^4.10.0",
     "ws": "^8.20.0"

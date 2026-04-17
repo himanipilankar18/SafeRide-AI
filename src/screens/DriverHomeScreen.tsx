@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { MapPin, Bell, Power } from "lucide-react";
 import AppLogo from "@/components/AppLogo";
 import { LatLng } from "@/lib/navigationSafety";
+import { reverseGeocodePlace } from "@/lib/placeSearch";
 import {
   MapContainer,
   Marker,
@@ -62,10 +63,34 @@ const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
   const [initialCenter, setInitialCenter] = useState<LatLng | null>(null);
   const [shouldFollowMap, setShouldFollowMap] = useState(true);
+  const [locationLabel, setLocationLabel] = useState("Finding your place...");
   const [locationStatus, setLocationStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
   const watchIdRef = useRef<number | null>(null);
+  const reverseGeoMetaRef = useRef<{
+    timestamp: number;
+    location: LatLng | null;
+  }>({
+    timestamp: 0,
+    location: null,
+  });
+
+  const haversineMeters = (a: LatLng, b: LatLng) => {
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+    const earthRadiusMeters = 6371000;
+    const dLat = toRadians(b.lat - a.lat);
+    const dLng = toRadians(b.lng - a.lng);
+
+    const q =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRadians(a.lat)) *
+        Math.cos(toRadians(b.lat)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+
+    return 2 * earthRadiusMeters * Math.asin(Math.sqrt(q));
+  };
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -132,6 +157,45 @@ const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
       }
     };
   }, [fallbackCenter]);
+
+  useEffect(() => {
+    if (!currentLocation) {
+      return;
+    }
+
+    const last = reverseGeoMetaRef.current;
+    const now = Date.now();
+    const hasRecentLookup = now - last.timestamp < 15000;
+    const movedMeters = last.location
+      ? haversineMeters(last.location, currentLocation)
+      : Number.POSITIVE_INFINITY;
+
+    if (hasRecentLookup && movedMeters < 40) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runLookup = async () => {
+      const placeName = await reverseGeocodePlace(currentLocation);
+      if (cancelled) {
+        return;
+      }
+
+      reverseGeoMetaRef.current = {
+        timestamp: Date.now(),
+        location: currentLocation,
+      };
+
+      setLocationLabel(placeName || "Location name unavailable");
+    };
+
+    runLookup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation]);
 
   if (!initialCenter) {
     return (
@@ -230,10 +294,8 @@ const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
               <p className="font-semibold text-sm text-foreground">
                 Live device location
               </p>
-              <p className="text-xs text-muted-foreground">
-                {currentLocation
-                  ? `${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}`
-                  : "Waiting for GPS..."}
+              <p className="text-xs text-muted-foreground max-w-[250px] leading-snug break-words">
+                {currentLocation ? locationLabel : "Waiting for GPS..."}
               </p>
             </div>
           </div>

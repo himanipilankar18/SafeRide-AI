@@ -1,5 +1,6 @@
 import express from "express";
 import jwt from "jsonwebtoken";
+import { ensureUser, getDriverOnboardingByPhone, upsertDriverOnboarding } from "../db/sqlite.js";
 
 const router = express.Router();
 
@@ -80,6 +81,90 @@ router.post("/login", (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to login",
+    });
+  }
+});
+
+/**
+ * POST /api/auth/driver-onboarding
+ * Save driver profile details after OTP login
+ * Body: { phoneNumber, driverName, carNumber, carModel, faceCredential, faceRegistered }
+ */
+router.post("/driver-onboarding", async (req, res) => {
+  try {
+    const {
+      phoneNumber,
+      driverName,
+      carNumber,
+      carModel,
+      faceCredential,
+      faceImage,
+      faceRegistered = false,
+    } = req.body;
+
+    if (!phoneNumber || !driverName || !carNumber || !carModel || !faceCredential) {
+      return res.status(400).json({
+        success: false,
+        message: "phoneNumber, driverName, carNumber, carModel and faceCredential are required",
+      });
+    }
+
+    const user = await ensureUser({
+      role: "driver",
+      name: driverName,
+      phone: phoneNumber,
+      verified: true,
+    });
+
+    const onboarding = await upsertDriverOnboarding({
+      userId: user.id,
+      phone: phoneNumber,
+      driverName,
+      carNumber,
+      carModel,
+      faceCredential,
+      faceImage,
+      faceRegistered,
+    });
+
+    res.json({
+      success: true,
+      message: "Driver onboarding saved",
+      onboarding,
+    });
+  } catch (error) {
+    console.error("Error in /driver-onboarding endpoint:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to save driver onboarding",
+    });
+  }
+});
+
+/**
+ * GET /api/auth/driver-onboarding/:phoneNumber
+ */
+router.get("/driver-onboarding/:phoneNumber", async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
+    const onboarding = await getDriverOnboardingByPhone(phoneNumber);
+
+    if (!onboarding) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver onboarding not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      onboarding,
+    });
+  } catch (error) {
+    console.error("Error in GET /driver-onboarding endpoint:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch driver onboarding",
     });
   }
 });
