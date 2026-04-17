@@ -15,10 +15,14 @@ let dbInstancePromise = null;
 const nowIso = () => new Date().toISOString();
 
 const isDuplicateColumnError = (error) =>
-  Boolean(error?.message && String(error.message).toLowerCase().includes("duplicate column name"));
+  Boolean(
+    error?.message &&
+    String(error.message).toLowerCase().includes("duplicate column name"),
+  );
 
 const resolveDbPath = (dbPathOverride = null) => {
-  const configuredPath = dbPathOverride || process.env.SAFERIDE_DB_PATH || DEFAULT_DB_FILENAME;
+  const configuredPath =
+    dbPathOverride || process.env.SAFERIDE_DB_PATH || DEFAULT_DB_FILENAME;
   return path.isAbsolute(configuredPath)
     ? configuredPath
     : path.resolve(__dirname, "../../", configuredPath);
@@ -29,7 +33,7 @@ const getDb = async (dbPathOverride = null) => {
 
   if (activeDbPath && activeDbPath !== resolvedPath) {
     throw new Error(
-      `SQLite connection already initialized with ${activeDbPath}. Close it before switching to ${resolvedPath}.`
+      `SQLite connection already initialized with ${activeDbPath}. Close it before switching to ${resolvedPath}.`,
     );
   }
 
@@ -44,7 +48,11 @@ const getDb = async (dbPathOverride = null) => {
 
         db.run("PRAGMA foreign_keys = ON", (pragmaError) => {
           if (pragmaError) {
-            reject(new Error(`Failed to enable foreign keys: ${pragmaError.message}`));
+            reject(
+              new Error(
+                `Failed to enable foreign keys: ${pragmaError.message}`,
+              ),
+            );
             return;
           }
           resolve(db);
@@ -165,6 +173,22 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
   `);
 
   try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN ended_at TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN ended_by TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
     await runQuery(`ALTER TABLE ride_otps ADD COLUMN end_lat REAL`);
   } catch (error) {
     if (!isDuplicateColumnError(error)) {
@@ -183,6 +207,43 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
   await runQuery(`
     CREATE INDEX IF NOT EXISTS idx_ride_otps_status_created
     ON ride_otps (status, created_at)
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS ride_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      otp_code TEXT NOT NULL UNIQUE,
+      ride_id INTEGER,
+      passenger_phone TEXT,
+      driver_phone TEXT,
+      source_label TEXT,
+      destination_label TEXT,
+      start_lat REAL,
+      start_lng REAL,
+      end_lat REAL,
+      end_lng REAL,
+      final_lat REAL,
+      final_lng REAL,
+      started_at TEXT,
+      ended_at TEXT NOT NULL,
+      ended_by TEXT,
+      duration_sec INTEGER,
+      distance_km REAL,
+      driver_performance_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (ride_id) REFERENCES ride_otps(ride_id) ON DELETE SET NULL
+    )
+  `);
+
+  await runQuery(`
+    CREATE INDEX IF NOT EXISTS idx_ride_summaries_passenger_time
+    ON ride_summaries (passenger_phone, ended_at)
+  `);
+
+  await runQuery(`
+    CREATE INDEX IF NOT EXISTS idx_ride_summaries_driver_time
+    ON ride_summaries (driver_phone, ended_at)
   `);
 
   await runQuery(`
@@ -454,10 +515,13 @@ export const createUser = async ({ role, name, phone, verified = false }) => {
 
   const result = await runQuery(
     `INSERT INTO users (role, name, phone, verified) VALUES (?, ?, ?, ?)`,
-    [normalizedRole, name, phone, verified ? 1 : 0]
+    [normalizedRole, name, phone, verified ? 1 : 0],
   );
 
-  return getOne(`SELECT id, role, name, phone, verified FROM users WHERE id = ?`, [result.lastID]);
+  return getOne(
+    `SELECT id, role, name, phone, verified FROM users WHERE id = ?`,
+    [result.lastID],
+  );
 };
 
 export const getUserByPhoneAndRole = async ({ phone, role }) => {
@@ -465,7 +529,10 @@ export const getUserByPhoneAndRole = async ({ phone, role }) => {
     throw new Error("getUserByPhoneAndRole requires phone and role");
   }
 
-  return getOne(`SELECT id, role, name, phone, verified FROM users WHERE phone = ? AND role = ?`, [phone, role]);
+  return getOne(
+    `SELECT id, role, name, phone, verified FROM users WHERE phone = ? AND role = ?`,
+    [phone, role],
+  );
 };
 
 export const ensureUser = async ({ role, name, phone, verified = false }) => {
@@ -475,8 +542,15 @@ export const ensureUser = async ({ role, name, phone, verified = false }) => {
 
   const existing = await getUserByPhoneAndRole({ phone, role });
   if (existing) {
-    await runQuery(`UPDATE users SET name = ?, verified = ? WHERE id = ?`, [name, verified ? 1 : 0, existing.id]);
-    return getOne(`SELECT id, role, name, phone, verified FROM users WHERE id = ?`, [existing.id]);
+    await runQuery(`UPDATE users SET name = ?, verified = ? WHERE id = ?`, [
+      name,
+      verified ? 1 : 0,
+      existing.id,
+    ]);
+    return getOne(
+      `SELECT id, role, name, phone, verified FROM users WHERE id = ?`,
+      [existing.id],
+    );
   }
 
   return createUser({ role, name, phone, verified });
@@ -494,7 +568,7 @@ export const upsertDriverOnboarding = async ({
 }) => {
   if (!phone || !driverName || !carNumber || !carModel || !faceCredential) {
     throw new Error(
-      "upsertDriverOnboarding requires phone, driverName, carNumber, carModel, and faceCredential"
+      "upsertDriverOnboarding requires phone, driverName, carNumber, carModel, and faceCredential",
     );
   }
 
@@ -533,24 +607,30 @@ export const upsertDriverOnboarding = async ({
       faceRegistered ? 1 : 0,
       timestamp,
       timestamp,
-    ]
+    ],
   );
 
-  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [String(phone)]);
+  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [
+    String(phone),
+  ]);
 };
 
-export const markDriverFaceRegistered = async ({ phone, faceRegistered = true }) => {
+export const markDriverFaceRegistered = async ({
+  phone,
+  faceRegistered = true,
+}) => {
   if (!phone) {
     throw new Error("markDriverFaceRegistered requires phone");
   }
 
-  await runQuery(`UPDATE driver_onboarding SET face_registered = ?, updated_at = ? WHERE phone = ?`, [
-    faceRegistered ? 1 : 0,
-    nowIso(),
+  await runQuery(
+    `UPDATE driver_onboarding SET face_registered = ?, updated_at = ? WHERE phone = ?`,
+    [faceRegistered ? 1 : 0, nowIso(), String(phone)],
+  );
+
+  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [
     String(phone),
   ]);
-
-  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [String(phone)]);
 };
 
 export const getDriverOnboardingByPhone = async (phone) => {
@@ -558,20 +638,26 @@ export const getDriverOnboardingByPhone = async (phone) => {
     throw new Error("getDriverOnboardingByPhone requires phone");
   }
 
-  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [String(phone)]);
+  return getOne(`SELECT * FROM driver_onboarding WHERE phone = ?`, [
+    String(phone),
+  ]);
 };
 
 export const createEmergencyContact = async ({ driverId, name, phone }) => {
   if (!driverId || !name || !phone) {
-    throw new Error("createEmergencyContact requires driverId, name, and phone");
+    throw new Error(
+      "createEmergencyContact requires driverId, name, and phone",
+    );
   }
 
   const result = await runQuery(
     `INSERT INTO emergency_contacts (driver_id, name, phone) VALUES (?, ?, ?)`,
-    [Number(driverId), String(name).trim(), String(phone).trim()]
+    [Number(driverId), String(name).trim(), String(phone).trim()],
   );
 
-  return getOne(`SELECT * FROM emergency_contacts WHERE id = ?`, [result.lastID]);
+  return getOne(`SELECT * FROM emergency_contacts WHERE id = ?`, [
+    result.lastID,
+  ]);
 };
 
 export const getEmergencyContactsByDriverId = async (driverId) => {
@@ -581,7 +667,7 @@ export const getEmergencyContactsByDriverId = async (driverId) => {
 
   return getAll(
     `SELECT * FROM emergency_contacts WHERE driver_id = ? ORDER BY id DESC`,
-    [Number(driverId)]
+    [Number(driverId)],
   );
 };
 
@@ -596,7 +682,7 @@ export const getLatestLiveLocationByDriverId = async (driverId) => {
      WHERE driver_id = ?
      ORDER BY timestamp DESC
      LIMIT 1`,
-    [Number(driverId)]
+    [Number(driverId)],
   );
 };
 
@@ -605,12 +691,17 @@ export const deleteEmergencyContactById = async (id) => {
     throw new Error("deleteEmergencyContactById requires id");
   }
 
-  const existing = await getOne(`SELECT * FROM emergency_contacts WHERE id = ?`, [Number(id)]);
+  const existing = await getOne(
+    `SELECT * FROM emergency_contacts WHERE id = ?`,
+    [Number(id)],
+  );
   if (!existing) {
     return { deleted: false, contact: null };
   }
 
-  const result = await runQuery(`DELETE FROM emergency_contacts WHERE id = ?`, [Number(id)]);
+  const result = await runQuery(`DELETE FROM emergency_contacts WHERE id = ?`, [
+    Number(id),
+  ]);
   return {
     deleted: result.changes > 0,
     contact: existing,
@@ -667,7 +758,7 @@ export const createRideOtp = async ({
       timestamp,
       timestamp,
       timestamp,
-    ]
+    ],
   );
 
   return getOne(`SELECT * FROM ride_otps WHERE ride_id = ?`, [result.lastID]);
@@ -678,7 +769,9 @@ export const getRideByOtp = async (otpCode) => {
     throw new Error("getRideByOtp requires otpCode");
   }
 
-  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
 };
 
 export const joinRideByOtp = async ({ otpCode, passengerPhone }) => {
@@ -699,10 +792,12 @@ export const joinRideByOtp = async ({ otpCode, passengerPhone }) => {
     `UPDATE ride_otps
      SET passenger_phone = ?, status = 'active', updated_at = ?
      WHERE otp_code = ?`,
-    [String(passengerPhone), nowIso(), String(otpCode)]
+    [String(passengerPhone), nowIso(), String(otpCode)],
   );
 
-  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
 };
 
 export const joinRideByOtpAsDriver = async ({ otpCode, driverPhone }) => {
@@ -723,13 +818,20 @@ export const joinRideByOtpAsDriver = async ({ otpCode, driverPhone }) => {
     `UPDATE ride_otps
      SET driver_phone = ?, status = 'active', updated_at = ?
      WHERE otp_code = ?`,
-    [String(driverPhone), nowIso(), String(otpCode)]
+    [String(driverPhone), nowIso(), String(otpCode)],
   );
 
-  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
 };
 
-export const updateRideOtpLocation = async ({ otpCode, lat, lng, timestamp = nowIso() }) => {
+export const updateRideOtpLocation = async ({
+  otpCode,
+  lat,
+  lng,
+  timestamp = nowIso(),
+}) => {
   if (!otpCode || lat === undefined || lng === undefined) {
     throw new Error("updateRideOtpLocation requires otpCode, lat, and lng");
   }
@@ -738,10 +840,12 @@ export const updateRideOtpLocation = async ({ otpCode, lat, lng, timestamp = now
     `UPDATE ride_otps
      SET current_lat = ?, current_lng = ?, location_updated_at = ?, updated_at = ?
      WHERE otp_code = ?`,
-    [lat, lng, timestamp, nowIso(), String(otpCode)]
+    [lat, lng, timestamp, nowIso(), String(otpCode)],
   );
 
-  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
 };
 
 export const getRideOtpPassengerView = async (otpCode) => {
@@ -774,7 +878,168 @@ export const getRideOtpPassengerView = async (otpCode) => {
     LEFT JOIN driver_onboarding d
       ON d.phone = r.driver_phone
     WHERE r.otp_code = ?`,
-    [String(otpCode)]
+    [String(otpCode)],
+  );
+};
+
+export const completeRideOtp = async ({
+  otpCode,
+  endedBy = "passenger",
+  finalLat = null,
+  finalLng = null,
+  distanceKm = null,
+  durationSec = null,
+  driverPerformance = null,
+}) => {
+  if (!otpCode) {
+    throw new Error("completeRideOtp requires otpCode");
+  }
+
+  const existingRide = await getRideByOtp(otpCode);
+  if (!existingRide) {
+    throw new Error("Ride not found");
+  }
+
+  const endedAt = nowIso();
+  const startedAt = existingRide.created_at || endedAt;
+  const computedDurationSec =
+    durationSec !== null && Number.isFinite(Number(durationSec))
+      ? Number(durationSec)
+      : Math.max(
+          0,
+          Math.round(
+            (new Date(endedAt).getTime() - new Date(startedAt).getTime()) /
+              1000,
+          ),
+        );
+
+  const normalizedFinalLat =
+    finalLat !== null && Number.isFinite(Number(finalLat))
+      ? Number(finalLat)
+      : existingRide.current_lat;
+  const normalizedFinalLng =
+    finalLng !== null && Number.isFinite(Number(finalLng))
+      ? Number(finalLng)
+      : existingRide.current_lng;
+
+  await runQuery(
+    `UPDATE ride_otps
+     SET status = 'completed',
+         current_lat = ?,
+         current_lng = ?,
+         location_updated_at = ?,
+         ended_at = ?,
+         ended_by = ?,
+         updated_at = ?
+     WHERE otp_code = ?`,
+    [
+      normalizedFinalLat,
+      normalizedFinalLng,
+      endedAt,
+      endedAt,
+      String(endedBy),
+      endedAt,
+      String(otpCode),
+    ],
+  );
+
+  const now = nowIso();
+  await runQuery(
+    `INSERT INTO ride_summaries (
+      otp_code,
+      ride_id,
+      passenger_phone,
+      driver_phone,
+      source_label,
+      destination_label,
+      start_lat,
+      start_lng,
+      end_lat,
+      end_lng,
+      final_lat,
+      final_lng,
+      started_at,
+      ended_at,
+      ended_by,
+      duration_sec,
+      distance_km,
+      driver_performance_json,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(otp_code) DO UPDATE SET
+      ride_id = excluded.ride_id,
+      passenger_phone = excluded.passenger_phone,
+      driver_phone = excluded.driver_phone,
+      source_label = excluded.source_label,
+      destination_label = excluded.destination_label,
+      start_lat = excluded.start_lat,
+      start_lng = excluded.start_lng,
+      end_lat = excluded.end_lat,
+      end_lng = excluded.end_lng,
+      final_lat = excluded.final_lat,
+      final_lng = excluded.final_lng,
+      started_at = excluded.started_at,
+      ended_at = excluded.ended_at,
+      ended_by = excluded.ended_by,
+      duration_sec = excluded.duration_sec,
+      distance_km = excluded.distance_km,
+      driver_performance_json = excluded.driver_performance_json,
+      updated_at = excluded.updated_at`,
+    [
+      String(existingRide.otp_code),
+      existingRide.ride_id ?? null,
+      existingRide.passenger_phone ?? null,
+      existingRide.driver_phone ?? null,
+      existingRide.source_label ?? null,
+      existingRide.destination_label ?? null,
+      existingRide.start_lat ?? null,
+      existingRide.start_lng ?? null,
+      existingRide.end_lat ?? null,
+      existingRide.end_lng ?? null,
+      normalizedFinalLat,
+      normalizedFinalLng,
+      startedAt,
+      endedAt,
+      String(endedBy),
+      computedDurationSec,
+      distanceKm !== null && Number.isFinite(Number(distanceKm))
+        ? Number(distanceKm)
+        : null,
+      driverPerformance ? JSON.stringify(driverPerformance) : null,
+      now,
+      now,
+    ],
+  );
+
+  return getOne(`SELECT * FROM ride_summaries WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
+};
+
+export const getRideSummariesByPassengerPhone = async (passengerPhone) => {
+  if (!passengerPhone) {
+    throw new Error("getRideSummariesByPassengerPhone requires passengerPhone");
+  }
+
+  return getAll(
+    `SELECT * FROM ride_summaries
+     WHERE passenger_phone = ?
+     ORDER BY ended_at DESC`,
+    [String(passengerPhone)],
+  );
+};
+
+export const getRideSummariesByDriverPhone = async (driverPhone) => {
+  if (!driverPhone) {
+    throw new Error("getRideSummariesByDriverPhone requires driverPhone");
+  }
+
+  return getAll(
+    `SELECT * FROM ride_summaries
+     WHERE driver_phone = ?
+     ORDER BY ended_at DESC`,
+    [String(driverPhone)],
   );
 };
 
@@ -810,7 +1075,7 @@ export const startTrip = async ({
       status,
       startTime,
       endTime,
-    ]
+    ],
   );
 
   return getOne(`SELECT * FROM trips WHERE trip_id = ?`, [result.lastID]);
@@ -824,9 +1089,17 @@ export const getTripById = async (tripId) => {
   return getOne(`SELECT * FROM trips WHERE trip_id = ?`, [tripId]);
 };
 
-export const updateTripLocation = async ({ tripId, driverId, lat, lng, timestamp = nowIso() }) => {
+export const updateTripLocation = async ({
+  tripId,
+  driverId,
+  lat,
+  lng,
+  timestamp = nowIso(),
+}) => {
   if (!tripId || !driverId || lat === undefined || lng === undefined) {
-    throw new Error("updateTripLocation requires tripId, driverId, lat, and lng");
+    throw new Error(
+      "updateTripLocation requires tripId, driverId, lat, and lng",
+    );
   }
 
   await runQuery(
@@ -837,18 +1110,27 @@ export const updateTripLocation = async ({ tripId, driverId, lat, lng, timestamp
       lat = excluded.lat,
       lng = excluded.lng,
       timestamp = excluded.timestamp`,
-    [tripId, driverId, lat, lng, timestamp]
+    [tripId, driverId, lat, lng, timestamp],
   );
 
-  return getOne(`SELECT * FROM trip_live_locations WHERE trip_id = ?`, [tripId]);
+  return getOne(`SELECT * FROM trip_live_locations WHERE trip_id = ?`, [
+    tripId,
+  ]);
 };
 
-export const endTrip = async ({ tripId, endTime = nowIso(), status = "completed" }) => {
+export const endTrip = async ({
+  tripId,
+  endTime = nowIso(),
+  status = "completed",
+}) => {
   if (!tripId) {
     throw new Error("endTrip requires tripId");
   }
 
-  await runQuery(`UPDATE trips SET status = ?, end_time = ? WHERE trip_id = ?`, [status, endTime, tripId]);
+  await runQuery(
+    `UPDATE trips SET status = ?, end_time = ? WHERE trip_id = ?`,
+    [status, endTime, tripId],
+  );
 
   return getOne(`SELECT * FROM trips WHERE trip_id = ?`, [tripId]);
 };
@@ -863,14 +1145,17 @@ export const getTripStatusById = async (tripId) => {
     return null;
   }
 
-  const liveLocation = await getOne(`SELECT * FROM trip_live_locations WHERE trip_id = ?`, [tripId]);
+  const liveLocation = await getOne(
+    `SELECT * FROM trip_live_locations WHERE trip_id = ?`,
+    [tripId],
+  );
   const latestRisk = await getOne(
     `SELECT * FROM risk_logs WHERE trip_id = ? ORDER BY timestamp DESC, id DESC LIMIT 1`,
-    [tripId]
+    [tripId],
   );
   const latestAlert = await getOne(
     `SELECT * FROM alerts WHERE trip_id = ? ORDER BY triggered_at DESC, alert_id DESC LIMIT 1`,
-    [tripId]
+    [tripId],
   );
 
   return {
@@ -897,7 +1182,14 @@ export const insertRiskLog = async ({
     `INSERT INTO risk_logs (
       trip_id, timestamp, fatigue_score, distraction_score, route_deviation_score, combined_risk
     ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [tripId, timestamp, fatigueScore, distractionScore, routeDeviationScore, combinedRisk]
+    [
+      tripId,
+      timestamp,
+      fatigueScore,
+      distractionScore,
+      routeDeviationScore,
+      combinedRisk,
+    ],
   );
 
   return getOne(`SELECT * FROM risk_logs WHERE id = ?`, [result.lastID]);
@@ -934,10 +1226,12 @@ export const insertTripMotionMetric = async ({
       jerkMps3,
       harshBrake ? 1 : 0,
       smoothBrakingScore,
-    ]
+    ],
   );
 
-  return getOne(`SELECT * FROM trip_motion_metrics WHERE id = ?`, [result.lastID]);
+  return getOne(`SELECT * FROM trip_motion_metrics WHERE id = ?`, [
+    result.lastID,
+  ]);
 };
 
 export const fetchRecentTripMotionMetrics = async ({ tripId, limit = 30 }) => {
@@ -947,7 +1241,7 @@ export const fetchRecentTripMotionMetrics = async ({ tripId, limit = 30 }) => {
 
   return getAll(
     `SELECT * FROM trip_motion_metrics WHERE trip_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`,
-    [tripId, limit]
+    [tripId, limit],
   );
 };
 
@@ -964,7 +1258,7 @@ export const triggerAlert = async ({
 
   const result = await runQuery(
     `INSERT INTO alerts (trip_id, type, level, triggered_at, action_taken) VALUES (?, ?, ?, ?, ?)`,
-    [tripId, type, level, triggeredAt, actionTaken]
+    [tripId, type, level, triggeredAt, actionTaken],
   );
 
   return getOne(`SELECT * FROM alerts WHERE alert_id = ?`, [result.lastID]);
@@ -984,10 +1278,12 @@ export const triggerEmergencyEvent = async ({
   const result = await runQuery(
     `INSERT INTO emergency_events (trip_id, triggered_by, location_lat, location_lng, status)
      VALUES (?, ?, ?, ?, ?)`,
-    [tripId, triggeredBy, locationLat, locationLng, status]
+    [tripId, triggeredBy, locationLat, locationLng, status],
   );
 
-  return getOne(`SELECT * FROM emergency_events WHERE event_id = ?`, [result.lastID]);
+  return getOne(`SELECT * FROM emergency_events WHERE event_id = ?`, [
+    result.lastID,
+  ]);
 };
 
 export const upsertGarage = async ({
@@ -1000,7 +1296,12 @@ export const upsertGarage = async ({
   lng,
   lastUpdated = nowIso(),
 }) => {
-  if ((garageId === undefined || garageId === null || String(garageId).trim() === "") || !name) {
+  if (
+    garageId === undefined ||
+    garageId === null ||
+    String(garageId).trim() === "" ||
+    !name
+  ) {
     throw new Error("upsertGarage requires garageId and name");
   }
 
@@ -1026,13 +1327,19 @@ export const upsertGarage = async ({
       lat,
       lng,
       lastUpdated,
-    ]
+    ],
   );
 
-  return getOne(`SELECT * FROM garage_cache WHERE garage_id = ?`, [normalizedGarageId]);
+  return getOne(`SELECT * FROM garage_cache WHERE garage_id = ?`, [
+    normalizedGarageId,
+  ]);
 };
 
-export const upsertRideGarages = async ({ rideId, garages = [], updatedAt = nowIso() }) => {
+export const upsertRideGarages = async ({
+  rideId,
+  garages = [],
+  updatedAt = nowIso(),
+}) => {
   if (!rideId) {
     throw new Error("upsertRideGarages requires rideId");
   }
@@ -1081,13 +1388,13 @@ export const upsertRideGarages = async ({ rideId, garages = [], updatedAt = nowI
         garage.distanceToRouteKm ?? null,
         updatedAt,
         updatedAt,
-      ]
+      ],
     );
   }
 
   return getAll(
     `SELECT * FROM ride_garages WHERE ride_id = ? ORDER BY distance_to_route_km ASC`,
-    [Number(rideId)]
+    [Number(rideId)],
   );
 };
 
@@ -1098,8 +1405,102 @@ export const getRideGarages = async ({ rideId, limit = 10 }) => {
 
   return getAll(
     `SELECT * FROM ride_garages WHERE ride_id = ? ORDER BY distance_to_route_km ASC LIMIT ?`,
-    [Number(rideId), Number(limit)]
+    [Number(rideId), Number(limit)],
   );
+};
+
+const haversineKm = (aLat, aLng, bLat, bLng) => {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(Number(bLat) - Number(aLat));
+  const dLng = toRad(Number(bLng) - Number(aLng));
+  const lat1 = toRad(Number(aLat));
+  const lat2 = toRad(Number(bLat));
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
+};
+
+export const getNearbyAvailableDrivers = async ({
+  lat,
+  lng,
+  radiusKm = 8,
+  limit = 5,
+  excludePhone = null,
+}) => {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    throw new Error("getNearbyAvailableDrivers requires valid lat/lng");
+  }
+
+  const candidates = await getAll(
+    `SELECT
+      d.phone AS driver_phone,
+      d.driver_name,
+      d.car_model,
+      d.car_number,
+      ll.current_lat AS lat,
+      ll.current_lng AS lng,
+      ll.location_updated_at
+    FROM driver_onboarding d
+    LEFT JOIN (
+      SELECT r1.driver_phone, r1.current_lat, r1.current_lng, r1.location_updated_at
+      FROM ride_otps r1
+      INNER JOIN (
+        SELECT
+          driver_phone,
+          MAX(COALESCE(location_updated_at, updated_at, created_at)) AS last_seen
+        FROM ride_otps
+        WHERE driver_phone IS NOT NULL
+          AND driver_phone != 'UNASSIGNED_DRIVER'
+          AND current_lat IS NOT NULL
+          AND current_lng IS NOT NULL
+        GROUP BY driver_phone
+      ) latest
+      ON latest.driver_phone = r1.driver_phone
+      AND COALESCE(r1.location_updated_at, r1.updated_at, r1.created_at) = latest.last_seen
+    ) ll ON ll.driver_phone = d.phone
+    LEFT JOIN ride_otps active
+      ON active.driver_phone = d.phone
+      AND active.status IN ('active', 'waiting')
+    WHERE d.face_registered = 1
+      AND active.ride_id IS NULL
+      AND (? IS NULL OR d.phone != ?)
+      AND ll.current_lat IS NOT NULL
+      AND ll.current_lng IS NOT NULL`,
+    [
+      excludePhone ? String(excludePhone) : null,
+      excludePhone ? String(excludePhone) : null,
+    ],
+  );
+
+  const ranked = candidates
+    .map((driver) => {
+      const distanceKm = haversineKm(lat, lng, driver.lat, driver.lng);
+      return {
+        id: String(driver.driver_phone),
+        name: String(driver.driver_name || "Available Driver"),
+        phone: String(driver.driver_phone),
+        vehicle: [driver.car_model, driver.car_number]
+          .filter(Boolean)
+          .join(" "),
+        rating: 4.7,
+        location: {
+          lat: Number(driver.lat),
+          lng: Number(driver.lng),
+        },
+        distanceKm,
+        locationUpdatedAt: driver.location_updated_at || null,
+      };
+    })
+    .filter((driver) => Number.isFinite(driver.distanceKm))
+    .filter((driver) => driver.distanceKm <= Number(radiusKm))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, Number(limit));
+
+  return ranked;
 };
 
 export const getLatestActiveRideByDriverPhone = async (driverPhone) => {
@@ -1114,7 +1515,7 @@ export const getLatestActiveRideByDriverPhone = async (driverPhone) => {
        AND status IN ('active', 'waiting')
      ORDER BY updated_at DESC, ride_id DESC
      LIMIT 1`,
-    [String(driverPhone)]
+    [String(driverPhone)],
   );
 };
 
@@ -1139,10 +1540,19 @@ export const upsertUserSession = async ({
       phone = excluded.phone,
       is_verified = excluded.is_verified,
       last_login = excluded.last_login`,
-    [String(userId), String(role), String(name), String(phone), isVerified ? 1 : 0, lastLogin]
+    [
+      String(userId),
+      String(role),
+      String(name),
+      String(phone),
+      isVerified ? 1 : 0,
+      lastLogin,
+    ],
   );
 
-  return getOne(`SELECT * FROM user_session WHERE user_id = ?`, [String(userId)]);
+  return getOne(`SELECT * FROM user_session WHERE user_id = ?`, [
+    String(userId),
+  ]);
 };
 
 export const getActiveUserSession = async () => {
@@ -1194,7 +1604,9 @@ export const cacheTrip = async ({
     [
       String(tripId),
       driverId === undefined || driverId === null ? null : String(driverId),
-      passengerId === undefined || passengerId === null ? null : String(passengerId),
+      passengerId === undefined || passengerId === null
+        ? null
+        : String(passengerId),
       startLat ?? null,
       startLng ?? null,
       endLat ?? null,
@@ -1203,7 +1615,7 @@ export const cacheTrip = async ({
       status,
       startTime,
       endTime,
-    ]
+    ],
   );
 
   return getOne(`SELECT * FROM trip_cache WHERE trip_id = ?`, [String(tripId)]);
@@ -1248,7 +1660,7 @@ export const insertLocalRiskLog = async ({
       routeDeviationScore ?? null,
       combinedRisk ?? null,
       synced ? 1 : 0,
-    ]
+    ],
   );
 
   return getOne(`SELECT * FROM risk_logs_local WHERE id = ?`, [result.lastID]);
@@ -1269,10 +1681,19 @@ export const insertLocalAlert = async ({
   const result = await runQuery(
     `INSERT INTO alerts_local (trip_id, type, level, triggered_at, action_taken, synced)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [String(tripId), String(type), String(level), triggeredAt, actionTaken, synced ? 1 : 0]
+    [
+      String(tripId),
+      String(type),
+      String(level),
+      triggeredAt,
+      actionTaken,
+      synced ? 1 : 0,
+    ],
   );
 
-  return getOne(`SELECT * FROM alerts_local WHERE alert_id = ?`, [result.lastID]);
+  return getOne(`SELECT * FROM alerts_local WHERE alert_id = ?`, [
+    result.lastID,
+  ]);
 };
 
 export const insertLocalEmergencyEvent = async ({
@@ -1284,7 +1705,9 @@ export const insertLocalEmergencyEvent = async ({
   synced = false,
 }) => {
   if (!tripId || !triggeredBy) {
-    throw new Error("insertLocalEmergencyEvent requires tripId and triggeredBy");
+    throw new Error(
+      "insertLocalEmergencyEvent requires tripId and triggeredBy",
+    );
   }
 
   const result = await runQuery(
@@ -1296,10 +1719,19 @@ export const insertLocalEmergencyEvent = async ({
       status,
       synced
     ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [String(tripId), String(triggeredBy), locationLat ?? null, locationLng ?? null, status, synced ? 1 : 0]
+    [
+      String(tripId),
+      String(triggeredBy),
+      locationLat ?? null,
+      locationLng ?? null,
+      status,
+      synced ? 1 : 0,
+    ],
   );
 
-  return getOne(`SELECT * FROM emergency_events_local WHERE event_id = ?`, [result.lastID]);
+  return getOne(`SELECT * FROM emergency_events_local WHERE event_id = ?`, [
+    result.lastID,
+  ]);
 };
 
 export const upsertDriverProfileLocal = async ({
@@ -1323,19 +1755,35 @@ export const upsertDriverProfileLocal = async ({
       fatigue_threshold = excluded.fatigue_threshold,
       distraction_threshold = excluded.distraction_threshold,
       last_updated = excluded.last_updated`,
-    [String(driverId), fatigueThreshold ?? null, distractionThreshold ?? null, lastUpdated]
+    [
+      String(driverId),
+      fatigueThreshold ?? null,
+      distractionThreshold ?? null,
+      lastUpdated,
+    ],
   );
 
-  return getOne(`SELECT * FROM driver_profile_local WHERE driver_id = ?`, [String(driverId)]);
+  return getOne(`SELECT * FROM driver_profile_local WHERE driver_id = ?`, [
+    String(driverId),
+  ]);
 };
 
 export const fetchUnsyncedLocalData = async ({ limit = 200 } = {}) => {
   const normalizedLimit = Number.isFinite(Number(limit)) ? Number(limit) : 200;
 
   const [riskLogs, alerts, emergencyEvents] = await Promise.all([
-    getAll(`SELECT * FROM risk_logs_local WHERE synced = 0 ORDER BY timestamp ASC LIMIT ?`, [normalizedLimit]),
-    getAll(`SELECT * FROM alerts_local WHERE synced = 0 ORDER BY triggered_at ASC LIMIT ?`, [normalizedLimit]),
-    getAll(`SELECT * FROM emergency_events_local WHERE synced = 0 ORDER BY event_id ASC LIMIT ?`, [normalizedLimit]),
+    getAll(
+      `SELECT * FROM risk_logs_local WHERE synced = 0 ORDER BY timestamp ASC LIMIT ?`,
+      [normalizedLimit],
+    ),
+    getAll(
+      `SELECT * FROM alerts_local WHERE synced = 0 ORDER BY triggered_at ASC LIMIT ?`,
+      [normalizedLimit],
+    ),
+    getAll(
+      `SELECT * FROM emergency_events_local WHERE synced = 0 ORDER BY event_id ASC LIMIT ?`,
+      [normalizedLimit],
+    ),
   ]);
 
   return {
@@ -1356,17 +1804,27 @@ export const markLocalAlertSynced = async (alertId) => {
   if (!alertId) {
     throw new Error("markLocalAlertSynced requires alertId");
   }
-  await runQuery(`UPDATE alerts_local SET synced = 1 WHERE alert_id = ?`, [alertId]);
+  await runQuery(`UPDATE alerts_local SET synced = 1 WHERE alert_id = ?`, [
+    alertId,
+  ]);
 };
 
 export const markLocalEmergencyEventSynced = async (eventId) => {
   if (!eventId) {
     throw new Error("markLocalEmergencyEventSynced requires eventId");
   }
-  await runQuery(`UPDATE emergency_events_local SET synced = 1 WHERE event_id = ?`, [eventId]);
+  await runQuery(
+    `UPDATE emergency_events_local SET synced = 1 WHERE event_id = ?`,
+    [eventId],
+  );
 };
 
-export const fetchNearbyGarages = async ({ lat, lng, radiusKm = 5, limit = 10 }) => {
+export const fetchNearbyGarages = async ({
+  lat,
+  lng,
+  radiusKm = 5,
+  limit = 10,
+}) => {
   if (lat === undefined || lng === undefined) {
     throw new Error("fetchNearbyGarages requires lat and lng");
   }
@@ -1392,7 +1850,7 @@ export const fetchNearbyGarages = async ({ lat, lng, radiusKm = 5, limit = 10 })
      WHERE distance_km <= ?
      ORDER BY distance_km ASC
      LIMIT ?`,
-    [lat, lng, lat, radiusKm, limit]
+    [lat, lng, lat, radiusKm, limit],
   );
 };
 

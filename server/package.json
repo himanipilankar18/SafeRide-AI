@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test:sqlite": "node src/scripts/testSqliteModule.js"
+    "test:sqlite": "node src/scripts/testSqliteModule.js",
+    "seed:nearby-driver": "node src/scripts/seedNearbyDriverForReplacement.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

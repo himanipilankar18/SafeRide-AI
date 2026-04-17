@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { KeyRound, UserCircle2 } from "lucide-react";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 export interface JoinedRidePayload {
   otpCode: string;
@@ -11,6 +15,12 @@ export interface JoinedRidePayload {
   faceImage: string | null;
   lat: number | null;
   lng: number | null;
+  sourceLabel?: string | null;
+  destinationLabel?: string | null;
+  startLat?: number | null;
+  startLng?: number | null;
+  endLat?: number | null;
+  endLng?: number | null;
 }
 
 interface PassengerJoinRideScreenProps {
@@ -49,7 +59,10 @@ const PassengerJoinRideScreen = ({
       const response = await fetch(`${apiBase}/rides/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ otpCode, passengerPhone: passengerPhone || "passenger-demo" }),
+        body: JSON.stringify({
+          otpCode,
+          passengerPhone: passengerPhone || "passenger-demo",
+        }),
       });
 
       const data = await response.json();
@@ -65,6 +78,12 @@ const PassengerJoinRideScreen = ({
         faceImage: data.ride.face_image || null,
         lat: data.ride.current_lat ?? null,
         lng: data.ride.current_lng ?? null,
+        sourceLabel: data.ride.source_label ?? null,
+        destinationLabel: data.ride.destination_label ?? null,
+        startLat: data.ride.start_lat ?? null,
+        startLng: data.ride.start_lng ?? null,
+        endLat: data.ride.end_lat ?? null,
+        endLng: data.ride.end_lng ?? null,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not join ride";
@@ -82,9 +101,15 @@ const PassengerJoinRideScreen = ({
       className="h-full overflow-y-auto px-5 pb-8 pt-12"
     >
       <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Join Ride</p>
-        <h2 className="mt-2 text-2xl font-extrabold text-foreground">Enter Driver OTP</h2>
-        <p className="mt-1 text-xs text-muted-foreground">Ask the driver for the 6-digit ride OTP.</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+          Join Ride
+        </p>
+        <h2 className="mt-2 text-2xl font-extrabold text-foreground">
+          Enter Driver OTP
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Ask the driver for the 6-digit ride OTP.
+        </p>
 
         <div className="mt-4 rounded-2xl border border-border bg-background/60 p-3 text-sm text-foreground">
           <div className="flex items-center gap-2">
@@ -113,7 +138,11 @@ const PassengerJoinRideScreen = ({
           </InputOTP>
         </div>
 
-        {error && <div className="mt-4 rounded-xl bg-red-100 px-3 py-2 text-xs text-red-800">{error}</div>}
+        {error && (
+          <div className="mt-4 rounded-xl bg-red-100 px-3 py-2 text-xs text-red-800">
+            {error}
+          </div>
+        )}
 
         <button
           type="button"

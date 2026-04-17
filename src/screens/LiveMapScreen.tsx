@@ -162,10 +162,41 @@ const LiveMapScreen = ({
               [event.location.lat, event.location.lng] as [number, number],
             ].slice(-300),
           );
+
+          if (event.risk?.isDeviation) {
+            const severity =
+              event.risk?.level === "high" ? "danger" : "warning";
+            const score = Math.max(
+              0,
+              Math.min(
+                100,
+                Number(
+                  typeof event.risk?.routeDeviationScore === "number"
+                    ? event.risk.routeDeviationScore * 100
+                    : 0,
+                ),
+              ),
+            );
+
+            const alert: DeviationAlert = {
+              severity,
+              message: "Route deviation detected",
+              location: event.location,
+              riskScore: score,
+              trend: "away",
+            };
+
+            setAlerts((prev) => [alert, ...prev].slice(0, 5));
+            setRiskLevel(severity);
+          }
         }
         break;
 
       case "deviation_alert": {
+        if (userType !== "passenger") {
+          break;
+        }
+
         const alert: DeviationAlert = {
           severity: event.severity as "warning" | "danger",
           message: event.message || "Route deviation detected",
@@ -182,6 +213,45 @@ const LiveMapScreen = ({
               ? "warning"
               : "safe",
         );
+        break;
+      }
+
+      case "driver_alert": {
+        if (userType !== "passenger") {
+          break;
+        }
+
+        const isRouteDeviation = String(event.message || "")
+          .toLowerCase()
+          .includes("route deviation");
+
+        if (!isRouteDeviation) {
+          break;
+        }
+
+        const severity = event.level === "high" ? "danger" : "warning";
+        const score = Math.max(
+          0,
+          Math.min(
+            100,
+            Number(
+              typeof event.details?.routeDeviationScore === "number"
+                ? event.details.routeDeviationScore * 100
+                : 0,
+            ),
+          ),
+        );
+
+        const alert: DeviationAlert = {
+          severity,
+          message: event.message || "Route deviation detected",
+          location: currentLocation,
+          riskScore: score,
+          trend: "away",
+        };
+
+        setAlerts((prev) => [alert, ...prev].slice(0, 5));
+        setRiskLevel(severity);
         break;
       }
 

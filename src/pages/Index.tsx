@@ -8,7 +8,7 @@ import LoginScreen from "@/screens/LoginScreen";
 import HomeScreen from "@/screens/HomeScreen";
 import MonitoringScreen from "@/screens/MonitoringScreen";
 import EmergencyScreen from "@/screens/EmergencyScreen";
-import TripSummaryScreen from "@/screens/TripSummaryScreen";
+import TripSummaryScreen from "../screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
@@ -16,7 +16,7 @@ import DriverRideSetupScreen from "@/screens/DriverRideSetupScreen";
 import PassengerJoinRideScreen, {
   type JoinedRidePayload,
 } from "@/screens/PassengerJoinRideScreen";
-import PassengerRideLiveScreen from "@/screens/PassengerRideLiveScreen";
+import PassengerRideLiveScreen from "../screens/PassengerRideLiveScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { TripConfig } from "@/screens/HomeScreen";
 
@@ -34,17 +34,10 @@ type Screen =
   | "emergency"
   | "summary";
 
-const NAV_TABS: Screen[] = [
-  "home",
-  "monitoring",
-  "emergency",
-  "summary",
-  "profile",
-  "passengerRideLive",
-];
-
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
+  const [emergencyReturnScreen, setEmergencyReturnScreen] =
+    useState<Screen>("monitoring");
   const [role, setRole] = useState<"driver" | "passenger" | null>(null);
   const [driverCredential, setDriverCredential] = useState<string>(
     () => localStorage.getItem("phoneNumber") || "driver-demo",
@@ -52,6 +45,7 @@ const Index = () => {
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
   const [joinedRide, setJoinedRide] = useState<JoinedRidePayload | null>(null);
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   const [driverJoinedRideTrip, setDriverJoinedRideTrip] =
     useState<TripConfig | null>(null);
   const [tripConfig, setTripConfig] = useState<TripConfig>({
@@ -59,7 +53,7 @@ const Index = () => {
     destinationLabel: "Koramangala, Bangalore",
     source: { lat: 12.9758, lng: 77.6058 },
     destination: { lat: 12.9352, lng: 77.6245 },
-    toleranceKm: 0.25,
+    toleranceKm: 0.1,
     sampleIntervalSec: 5,
     driverName: "SafeRide Driver",
     driverPhone: "+91 demo-driver",
@@ -131,7 +125,7 @@ const Index = () => {
         setScreen("login");
         break;
       case "emergency":
-        setScreen("monitoring");
+        setScreen(emergencyReturnScreen);
         break;
       case "summary":
         setScreen("home");
@@ -139,14 +133,64 @@ const Index = () => {
     }
   };
 
+  const navigateToEmergency = (from: Screen) => {
+    setEmergencyReturnScreen(from);
+    setScreen("emergency");
+  };
+
   const handleRoleSelect = (selectedRole: "driver" | "passenger") => {
     setRole(selectedRole);
     setScreen("login");
   };
 
-  const shouldShowBottomNav = Boolean(role) && NAV_TABS.includes(screen);
+  const shouldShowBottomNav =
+    Boolean(role) && !["onboarding", "role", "login"].includes(screen);
   const bottomNavActive =
     screen === "passengerRideLive" ? "monitoring" : screen;
+
+  const endTripAndSyncSummary = async ({
+    otpCode,
+    finalLocation,
+    distanceKm,
+    durationSec,
+    driverPerformance,
+  }: {
+    otpCode: string;
+    finalLocation: { lat: number; lng: number } | null;
+    distanceKm: number;
+    durationSec: number;
+    driverPerformance?: {
+      safetyScore?: number;
+      deviationAlerts?: number;
+      averageSpeedKmph?: number;
+      routeAdherencePercent?: number;
+      durationSec?: number;
+      distanceKm?: number;
+    };
+  }) => {
+    const response = await fetch(`${resolveApiBase()}/rides/end`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        otpCode,
+        endedBy: role || "passenger",
+        finalLat: finalLocation?.lat ?? null,
+        finalLng: finalLocation?.lng ?? null,
+        distanceKm,
+        durationSec,
+        driverPerformance: driverPerformance || null,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data?.success) {
+      throw new Error(data?.message || "Failed to end trip");
+    }
+
+    setHasActiveTrip(false);
+    setSummaryRefreshKey((prev) => prev + 1);
+    setScreen("summary");
+  };
 
   const renderScreen = () => {
     switch (screen) {
@@ -224,6 +268,12 @@ const Index = () => {
                   faceImage: null,
                   lat: trip.source.lat,
                   lng: trip.source.lng,
+                  sourceLabel: trip.sourceLabel,
+                  destinationLabel: trip.destinationLabel,
+                  startLat: trip.source.lat,
+                  startLng: trip.source.lng,
+                  endLat: trip.destination.lat,
+                  endLng: trip.destination.lng,
                 });
                 setActiveTripId(String(data.ride.otp_code));
 
@@ -259,7 +309,7 @@ const Index = () => {
                 destinationLabel: ride.destinationLabel,
                 source: ride.source,
                 destination: ride.destination,
-                toleranceKm: 0.25,
+                toleranceKm: 0.1,
                 sampleIntervalSec: 5,
                 driverName: "Driver",
                 driverPhone: driverCredential,
@@ -290,6 +340,8 @@ const Index = () => {
             key="passenger-ride-live"
             ride={joinedRide}
             tripId={activeTripId || joinedRide.otpCode}
+            onOpenEmergency={() => navigateToEmergency("passengerRideLive")}
+            onEndTrip={endTripAndSyncSummary}
           />
         ) : (
           <PassengerJoinRideScreen
@@ -309,7 +361,7 @@ const Index = () => {
         return role === "driver" && driverJoinedRideTrip ? (
           <MonitoringScreen
             key="driver-route-monitoring"
-            onEmergency={() => setScreen("emergency")}
+            onEmergency={() => navigateToEmergency("monitoring")}
             onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={driverJoinedRideTrip}
             onTripChange={setDriverJoinedRideTrip}
@@ -320,12 +372,12 @@ const Index = () => {
         ) : role === "driver" ? (
           <DriverMonitoringScreen
             key="driver-monitoring"
-            onEmergency={() => setScreen("emergency")}
+            onEmergency={() => navigateToEmergency("monitoring")}
           />
         ) : (
           <MonitoringScreen
             key="passenger-monitoring"
-            onEmergency={() => setScreen("emergency")}
+            onEmergency={() => navigateToEmergency("monitoring")}
             onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={tripConfig}
             onTripChange={setTripConfig}
@@ -348,13 +400,22 @@ const Index = () => {
         return (
           <EmergencyScreen
             key="emergency"
-            onBack={() => setScreen("monitoring")}
+            onBack={() => setScreen(emergencyReturnScreen)}
             tripConfig={tripConfig}
             hasActiveTrip={hasActiveTrip}
+            role={role || "passenger"}
+            activeTripId={activeTripId}
           />
         );
       case "summary":
-        return <TripSummaryScreen key="summary" />;
+        return (
+          <TripSummaryScreen
+            key={`summary-${summaryRefreshKey}`}
+            role={role || "passenger"}
+            phoneNumber={localStorage.getItem("phoneNumber") || "N/A"}
+            refreshKey={summaryRefreshKey}
+          />
+        );
     }
   };
 
@@ -368,10 +429,15 @@ const Index = () => {
         </div>
 
         {shouldShowBottomNav && (
-          <div className="absolute inset-x-0 bottom-0 z-[2000]">
+          <div className="absolute inset-x-0 bottom-0 z-[3000] pointer-events-auto">
             <BottomNav
               active={bottomNavActive}
               onNavigate={(nextScreen) => {
+                if (nextScreen === "emergency") {
+                  navigateToEmergency(screen);
+                  return;
+                }
+
                 setScreen(nextScreen as Screen);
               }}
             />

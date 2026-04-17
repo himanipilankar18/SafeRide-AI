@@ -1,16 +1,23 @@
 import express from "express";
 import {
+  completeRideOtp,
   createRideOtp,
+  getNearbyAvailableDrivers,
   getRideByOtp,
   getRideOtpPassengerView,
+  getRideSummariesByDriverPhone,
+  getRideSummariesByPassengerPhone,
+  joinRideByOtp,
   joinRideByOtpAsDriver,
   updateRideOtpLocation,
 } from "../db/sqlite.js";
+import { emitTripEvent } from "../liveTracking.js";
 import { discoverAndStoreRouteGarages } from "../services/garageDiscovery.js";
 
 const router = express.Router();
 
-const generateSixDigitOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+const generateSixDigitOtp = () =>
+  String(Math.floor(100000 + Math.random() * 900000));
 
 const asyncHandler = (handler) => async (req, res) => {
   try {
@@ -92,7 +99,33 @@ router.post(
       success: true,
       ride,
     });
-  })
+  }),
+);
+
+router.post(
+  "/join",
+  asyncHandler(async (req, res) => {
+    const { otpCode, passengerPhone } = req.body || {};
+
+    if (!otpCode || !passengerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "otpCode and passengerPhone are required",
+      });
+    }
+
+    const ride = await joinRideByOtp({
+      otpCode: String(otpCode).trim(),
+      passengerPhone: String(passengerPhone).trim(),
+    });
+
+    const passengerView = await getRideOtpPassengerView(ride.otp_code);
+
+    res.json({
+      success: true,
+      ride: passengerView,
+    });
+  }),
 );
 
 router.post(
@@ -118,7 +151,50 @@ router.post(
       success: true,
       ride: passengerView,
     });
-  })
+  }),
+);
+
+router.post(
+  "/end",
+  asyncHandler(async (req, res) => {
+    const {
+      otpCode,
+      endedBy = "passenger",
+      finalLat,
+      finalLng,
+      distanceKm,
+      durationSec,
+      driverPerformance,
+    } = req.body || {};
+
+    if (!otpCode) {
+      return res.status(400).json({
+        success: false,
+        message: "otpCode is required",
+      });
+    }
+
+    const summary = await completeRideOtp({
+      otpCode: String(otpCode).trim(),
+      endedBy,
+      finalLat,
+      finalLng,
+      distanceKm,
+      durationSec,
+      driverPerformance,
+    });
+
+    emitTripEvent(String(otpCode).trim(), {
+      type: "trip_complete",
+      message: "Ride completed",
+      summary,
+    });
+
+    res.json({
+      success: true,
+      summary,
+    });
+  }),
 );
 
 router.post(
@@ -144,7 +220,147 @@ router.post(
       success: true,
       ride,
     });
-  })
+  }),
+);
+
+router.get(
+  "/nearby-drivers",
+  asyncHandler(async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const radiusKm = Number(req.query.radiusKm || 8);
+    const limit = Number(req.query.limit || 5);
+    const excludePhone = req.query.excludePhone
+      ? String(req.query.excludePhone)
+      : null;
+
+    const drivers = await getNearbyAvailableDrivers({
+      lat,
+      lng,
+      radiusKm,
+      limit,
+      excludePhone,
+    });
+
+    res.json({
+      success: true,
+      drivers,
+    });
+  }),
+);
+
+router.get(
+  "/history",
+  asyncHandler(async (req, res) => {
+    const role = String(req.query.role || "passenger").toLowerCase();
+    const phone = String(req.query.phone || "").trim();
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "phone query param is required",
+      });
+    }
+
+    const rides =
+      role === "driver"
+        ? await getRideSummariesByDriverPhone(phone)
+        : await getRideSummariesByPassengerPhone(phone);
+
+    res.json({
+      success: true,
+      rides,
+    });
+  }),
+);
+
+router.get(
+  "/live-track/:otpCode",
+  asyncHandler(async (req, res) => {
+    const otpCode = String(req.params.otpCode || "").trim();
+    if (!otpCode) {
+      return res.status(400).send("Invalid ride link");
+    }
+
+    const safeOtp = otpCode.replace(/[^0-9A-Za-z_-]/g, "");
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SafeRide Live Tracking</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+    <style>
+      html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+      #map { height: 75vh; width: 100%; }
+      .panel { padding: 12px; }
+      .label { font-size: 12px; color: #444; }
+      .value { font-size: 14px; font-weight: 600; margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div class="panel">
+      <div class="label">Tracking OTP</div>
+      <div class="value">${safeOtp}</div>
+      <div class="label" style="margin-top:8px;">Last update</div>
+      <div id="updatedAt" class="value">Waiting for live location...</div>
+      <div id="driverInfo" class="label" style="margin-top:8px;"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+      const otp = ${JSON.stringify(safeOtp)};
+      const map = L.map('map').setView([12.9716, 77.5946], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      let marker = null;
+
+      const refresh = async () => {
+        try {
+          const response = await fetch('/api/rides/status/' + encodeURIComponent(otp));
+          const data = await response.json();
+          if (!response.ok || !data.success || !data.ride) {
+            return;
+          }
+
+          const ride = data.ride;
+          if (ride.current_lat != null && ride.current_lng != null) {
+            const lat = Number(ride.current_lat);
+            const lng = Number(ride.current_lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return;
+            }
+            if (!marker) {
+              marker = L.marker([lat, lng]).addTo(map);
+            } else {
+              marker.setLatLng([lat, lng]);
+            }
+            map.setView([lat, lng], map.getZoom() < 15 ? 15 : map.getZoom(), { animate: true });
+            document.getElementById('updatedAt').textContent = ride.location_updated_at || new Date().toISOString();
+            const driverInfo = [ride.driver_name || 'Driver', ride.car_model || '', ride.car_number || ''].filter(Boolean).join(' · ');
+            document.getElementById('driverInfo').textContent = driverInfo;
+          }
+        } catch (_err) {
+          // ignore transient failures
+        }
+      };
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>`;
+
+    res.status(200).setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  }),
 );
 
 router.get(
@@ -164,7 +380,7 @@ router.get(
       success: true,
       ride,
     });
-  })
+  }),
 );
 
 export default router;

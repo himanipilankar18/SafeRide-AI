@@ -53,6 +53,22 @@ const formatPoint = (point) => {
   return `${Number(point.lat).toFixed(5)}, ${Number(point.lng).toFixed(5)}`;
 };
 
+const buildLiveTrackingLink = (trip) => {
+  const otpCode = String(trip?.otpCode || trip?.otp_code || "").trim();
+  if (!otpCode) {
+    return "Unavailable";
+  }
+
+  const configuredBase =
+    process.env.TRACKING_BASE_URL ||
+    process.env.PUBLIC_TRACKING_BASE_URL ||
+    process.env.APP_BASE_URL ||
+    "http://localhost:5001";
+
+  const base = String(configuredBase).replace(/\/$/, "");
+  return `${base}/api/rides/live-track/${encodeURIComponent(otpCode)}`;
+};
+
 const buildEmergencyMessage = ({
   passenger,
   driver,
@@ -69,6 +85,12 @@ const buildEmergencyMessage = ({
   const sourceText = trip?.sourceLabel || formatPoint(trip?.source);
   const destinationText =
     trip?.destinationLabel || formatPoint(trip?.destination);
+  const carModel = driver?.carModel || driver?.vehicleModel || "Unknown model";
+  const carNumber =
+    driver?.carNumber ||
+    driver?.numberPlate ||
+    driver?.vehicleNumber ||
+    "Unknown plate";
   const locationText = formatPoint(location);
   const mapLink =
     location &&
@@ -76,15 +98,18 @@ const buildEmergencyMessage = ({
     Number.isFinite(Number(location.lng))
       ? `https://maps.google.com/?q=${Number(location.lat)},${Number(location.lng)}`
       : "Unavailable";
+  const liveTrackingLink = buildLiveTrackingLink(trip);
 
   return [
     "SOS alert from SafeRide.",
     `${passengerText} triggered an emergency alert.`,
     `Driver: ${driverText}`,
+    `Car: ${carModel} (${carNumber})`,
     `Source: ${sourceText}`,
     `Destination: ${destinationText}`,
     `Current location: ${locationText}`,
     `Map: ${mapLink}`,
+    `Live tracking: ${liveTrackingLink}`,
     `Time: ${timestamp || new Date().toISOString()}`,
     "Please call them or contact emergency services if they do not respond.",
   ].join("\n");
@@ -104,6 +129,12 @@ const buildPoliceMessage = ({
       ? `${driver?.name || "Assigned driver"}${driver?.phoneNumber ? ` (${driver.phoneNumber})` : ""}`
       : "Not assigned";
   const vehicleText = driver?.vehicleDetails || "Unknown vehicle";
+  const carModel = driver?.carModel || driver?.vehicleModel || "Unknown model";
+  const carNumber =
+    driver?.carNumber ||
+    driver?.numberPlate ||
+    driver?.vehicleNumber ||
+    "Unknown plate";
   const sourceText = trip?.sourceLabel || formatPoint(trip?.source);
   const destinationText =
     trip?.destinationLabel || formatPoint(trip?.destination);
@@ -114,15 +145,19 @@ const buildPoliceMessage = ({
     Number.isFinite(Number(location.lng))
       ? `https://maps.google.com/?q=${Number(location.lat)},${Number(location.lng)}`
       : "Unavailable";
+  const liveTrackingLink = buildLiveTrackingLink(trip);
 
   return [
     "SafeRide emergency escalation.",
     `Passenger: ${passengerText}`,
     `Driver: ${driverText}`,
     `Vehicle: ${vehicleText}`,
+    `Car model: ${carModel}`,
+    `Number plate: ${carNumber}`,
     `Route: ${sourceText} -> ${destinationText}`,
     `Passenger location: ${locationText}`,
     `Map: ${mapLink}`,
+    `Live tracking: ${liveTrackingLink}`,
     `Time: ${timestamp || new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
   ].join("\n");
 };
@@ -314,10 +349,9 @@ router.post("/trigger", async (req, res) => {
     const lng = latestLocation?.lng;
     const hasValidLocation =
       Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
-    const locationText =
-      hasValidLocation
-        ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
-        : "Unavailable";
+    const locationText = hasValidLocation
+      ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+      : "Unavailable";
     const mapLink = hasValidLocation
       ? `https://maps.google.com/?q=${Number(lat)},${Number(lng)}`
       : "Unavailable";

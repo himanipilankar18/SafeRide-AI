@@ -1,8 +1,23 @@
 import { motion } from "framer-motion";
-import { MapPin, Phone, Share2, Trash2, UserPlus } from "lucide-react";
+import {
+  Ambulance,
+  MapPin,
+  Phone,
+  Trash2,
+  UserPlus,
+  Wrench,
+} from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
+import {
+  DistanceEntry,
+  NearbyGarage,
+  NearbyHospital,
+  getNearbyGarages,
+  getNearbyHospitals,
+  reportDriverIncident,
+} from "@/lib/roadsideSupport";
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
 
@@ -10,6 +25,8 @@ interface EmergencyScreenProps {
   onBack: () => void;
   tripConfig: TripConfig;
   hasActiveTrip?: boolean;
+  role: "driver" | "passenger";
+  activeTripId?: string | null;
 }
 
 type EmergencyContact = {
@@ -38,10 +55,31 @@ const normalizePhoneNumber = (value: string) => {
   return trimmed;
 };
 
+const parseVehicleDetails = (vehicleDetails: string | undefined) => {
+  const text = String(vehicleDetails || "").trim();
+  if (!text) {
+    return { carModel: "Unknown model", carNumber: "Unknown plate" };
+  }
+
+  const parts = text.split(" ");
+  if (parts.length <= 2) {
+    return { carModel: text, carNumber: "Unknown plate" };
+  }
+
+  const carNumber = parts.slice(-1).join(" ");
+  const carModel = parts.slice(0, -1).join(" ");
+  return {
+    carModel: carModel || "Unknown model",
+    carNumber: carNumber || "Unknown plate",
+  };
+};
+
 const EmergencyScreen = ({
   onBack,
   tripConfig,
   hasActiveTrip = false,
+  role,
+  activeTripId = null,
 }: EmergencyScreenProps) => {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [contactName, setContactName] = useState("");
@@ -53,6 +91,22 @@ const EmergencyScreen = ({
   >("info");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
+  const [garages, setGarages] = useState<DistanceEntry<NearbyGarage>[]>([]);
+  const [hospitals, setHospitals] = useState<DistanceEntry<NearbyHospital>[]>(
+    [],
+  );
+  const [garageSource, setGarageSource] = useState<"online" | "offline-cache">(
+    "online",
+  );
+  const [hospitalSource, setHospitalSource] = useState<
+    "online" | "offline-cache"
+  >("online");
+  const [driverAssistStatus, setDriverAssistStatus] = useState<string | null>(
+    null,
+  );
+  const [supportView, setSupportView] = useState<
+    "none" | "garage" | "hospital"
+  >("none");
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
@@ -69,6 +123,36 @@ const EmergencyScreen = ({
       setContacts([]);
     }
   }, []);
+
+  useEffect(() => {
+    if (role !== "driver" || !currentLocation) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSupportPlaces = async () => {
+      const [garageResult, hospitalResult] = await Promise.all([
+        getNearbyGarages(currentLocation, 3),
+        getNearbyHospitals(currentLocation, 3),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setGarages(garageResult.garages);
+      setGarageSource(garageResult.source);
+      setHospitals(hospitalResult.hospitals);
+      setHospitalSource(hospitalResult.source);
+    };
+
+    loadSupportPlaces().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation, role]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -151,6 +235,9 @@ const EmergencyScreen = ({
       const passengerPhone =
         window.localStorage.getItem("phoneNumber") || "passenger-demo";
       const location = currentLocation ?? tripConfig.source;
+      const { carModel, carNumber } = parseVehicleDetails(
+        tripConfig.driverVehicleDetails,
+      );
       const timestamp = new Date().toLocaleString("en-IN", {
         timeZone: "Asia/Kolkata",
       });
@@ -166,9 +253,13 @@ const EmergencyScreen = ({
           driver: {
             name: tripConfig.driverName,
             phoneNumber: tripConfig.driverPhone,
+            carModel,
+            carNumber,
+            vehicleDetails: tripConfig.driverVehicleDetails,
           },
           trip: hasActiveTrip
             ? {
+                otpCode: activeTripId,
                 sourceLabel: tripConfig.sourceLabel,
                 destinationLabel: tripConfig.destinationLabel,
                 source: tripConfig.source,
@@ -221,6 +312,40 @@ const EmergencyScreen = ({
     } finally {
       setIsSendingAlert(false);
     }
+  };
+
+  const callNumber = (phone: string) => {
+    if (!phone) {
+      return;
+    }
+    window.location.href = `tel:${phone}`;
+  };
+
+  const notifyPassengerAndRequestReplacement = () => {
+    if (!currentLocation) {
+      setDriverAssistStatus("Waiting for GPS. Please try again in a moment.");
+      return;
+    }
+
+    const nearest = garages[0];
+    reportDriverIncident({
+      reason: "mechanical",
+      location: currentLocation,
+      reportedAt: new Date().toISOString(),
+      nearestGarage: nearest
+        ? {
+            name: nearest.item.name,
+            phone: nearest.item.phone,
+            distanceKm: nearest.distanceKm,
+          }
+        : undefined,
+    });
+
+    setDriverAssistStatus(
+      nearest
+        ? `Passenger notified. Replacement flow can continue from this point. Nearest garage: ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km).`
+        : "Passenger notified. Replacement flow can continue from this point.",
+    );
   };
 
   return (
@@ -281,65 +406,143 @@ const EmergencyScreen = ({
           </div>
         )}
 
-        {/* Quick actions */}
-        <div className="w-full space-y-3">
-          <motion.button
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="w-full flex items-center gap-4 bg-card rounded-2xl p-4 border border-border transition-colors hover:bg-accent"
-          >
-            <div className="w-12 h-12 rounded-xl bg-destructive/10 flex items-center justify-center">
-              <Phone size={20} className="text-destructive" />
-            </div>
-            <div className="text-left">
-              <p className="font-semibold text-sm text-foreground">Call Help</p>
-              <p className="text-xs text-muted-foreground">
-                Contact emergency services
-              </p>
-            </div>
-          </motion.button>
+        {role === "driver" && (
+          <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-semibold text-foreground">
+              Driver Support Tools
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Use nearby garages or hospitals and hand over the ride safely.
+            </p>
 
-          <motion.button
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="w-full flex items-center gap-4 bg-card rounded-2xl p-4 border border-border transition-colors hover:bg-accent"
-          >
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <MapPin size={20} className="text-primary" />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSupportView("garage")}
+                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800"
+              >
+                <Wrench size={14} className="mr-1 inline" />
+                Find Garage
+              </button>
+              <button
+                type="button"
+                onClick={() => setSupportView("hospital")}
+                className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700"
+              >
+                <Ambulance size={14} className="mr-1 inline" />
+                Find Hospital
+              </button>
             </div>
-            <div className="text-left">
-              <p className="font-semibold text-sm text-foreground">
-                Share Location
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Send live location to contacts
-              </p>
-            </div>
-          </motion.button>
 
-          <motion.button
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            onClick={sendEmergencyAlert}
-            disabled={isSendingAlert}
-            className="w-full flex items-center gap-4 bg-card rounded-2xl p-4 border border-border transition-colors hover:bg-accent"
-          >
-            <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center">
-              <Share2 size={20} className="text-warning" />
-            </div>
-            <div className="text-left">
-              <p className="font-semibold text-sm text-foreground">
-                Alert Contacts
+            {supportView === "garage" && (
+              <button
+                type="button"
+                onClick={notifyPassengerAndRequestReplacement}
+                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left text-xs font-bold text-amber-800"
+              >
+                <Wrench size={14} className="mr-2 inline" />
+                Cannot continue ride. Notify passenger and start replacement
+                flow.
+              </button>
+            )}
+
+            {driverAssistStatus && (
+              <p className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-muted-foreground">
+                {driverAssistStatus}
               </p>
-              <p className="text-xs text-muted-foreground">
-                Notify your trusted circle
-              </p>
-            </div>
-          </motion.button>
-        </div>
+            )}
+
+            {supportView === "garage" && (
+              <div className="rounded-xl border border-border bg-background p-3">
+                <p className="text-xs font-semibold text-foreground">
+                  Nearby Garages (
+                  {garageSource === "online" ? "Live" : "Offline"})
+                </p>
+                <div className="mt-2 space-y-2">
+                  {garages.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Searching garages...
+                    </p>
+                  ) : (
+                    garages.map((entry) => (
+                      <div
+                        key={entry.item.id}
+                        className="rounded-lg border border-border bg-card px-3 py-2"
+                      >
+                        <p className="text-xs font-semibold text-foreground">
+                          {entry.item.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {entry.item.address}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {entry.distanceKm.toFixed(1)} km away
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => callNumber(entry.item.phone)}
+                          className="mt-2 rounded-lg border border-primary/30 px-2 py-1 text-[11px] font-bold text-primary"
+                        >
+                          Call Garage
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {supportView === "hospital" && (
+              <div className="rounded-xl border border-border bg-background p-3">
+                <p className="text-xs font-semibold text-foreground">
+                  Nearby Hospitals (
+                  {hospitalSource === "online" ? "Live" : "Offline"})
+                </p>
+                <div className="mt-2 space-y-2">
+                  {hospitals.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Searching hospitals...
+                    </p>
+                  ) : (
+                    hospitals.map((entry) => (
+                      <div
+                        key={entry.item.id}
+                        className="rounded-lg border border-border bg-card px-3 py-2"
+                      >
+                        <p className="text-xs font-semibold text-foreground">
+                          {entry.item.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {entry.item.address}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {entry.distanceKm.toFixed(1)} km away
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => callNumber(entry.item.phone)}
+                            className="rounded-lg border border-primary/30 px-2 py-1 text-[11px] font-bold text-primary"
+                          >
+                            Call Hospital
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => callNumber("108")}
+                            className="rounded-lg border border-red-300 px-2 py-1 text-[11px] font-bold text-red-700"
+                          >
+                            <Ambulance size={12} className="mr-1 inline" />
+                            Call Ambulance
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Emergency contacts */}
         <div className="mt-5 rounded-2xl border border-border bg-card p-4">
@@ -403,6 +606,13 @@ const EmergencyScreen = ({
                     <p className="text-xs text-muted-foreground">
                       {contact.phone}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => callNumber(contact.phone)}
+                      className="mt-1 rounded-lg border border-primary/30 px-2 py-1 text-[11px] font-bold text-primary"
+                    >
+                      Call
+                    </button>
                   </div>
                   <button
                     type="button"

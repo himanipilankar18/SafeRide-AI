@@ -9,6 +9,14 @@ export type NearbyGarage = {
   services: string[];
 };
 
+export type NearbyHospital = {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  location: LatLng;
+};
+
 export type NearbyDriver = {
   id: string;
   name: string;
@@ -35,6 +43,7 @@ export type DriverIncidentRecord = {
 };
 
 const GARAGE_CACHE_KEY = "saferide_cached_nearby_garages";
+const HOSPITAL_CACHE_KEY = "saferide_cached_nearby_hospitals";
 const INCIDENT_KEY = "saferide_driver_vehicle_issue";
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
@@ -81,6 +90,30 @@ const GARAGE_DIRECTORY: NearbyGarage[] = [
     address: "11th Main, Jayanagar, Bengaluru",
     location: { lat: 12.9289, lng: 77.5835 },
     services: ["Roadside support", "Fuel delivery", "Minor repairs"],
+  },
+];
+
+const HOSPITAL_DIRECTORY: NearbyHospital[] = [
+  {
+    id: "hospital-kh-1",
+    name: "BMC Civil Hospital",
+    phone: "+912228962100",
+    address: "Brahma Kumaris Marg, Kandivali East, Mumbai",
+    location: { lat: 19.2094, lng: 72.8617 },
+  },
+  {
+    id: "hospital-kh-2",
+    name: "Karuna Hospital",
+    phone: "+912228063000",
+    address: "Shivaji Nagar, Dahisar East, Mumbai",
+    location: { lat: 19.2572, lng: 72.8641 },
+  },
+  {
+    id: "hospital-kh-3",
+    name: "Apex Multi Speciality Hospital",
+    phone: "+912228953333",
+    address: "Western Express Highway, Borivali East, Mumbai",
+    location: { lat: 19.2349, lng: 72.8568 },
   },
 ];
 
@@ -143,6 +176,19 @@ const readCachedGarages = (): NearbyGarage[] => {
   }
 };
 
+const readCachedHospitals = (): NearbyHospital[] => {
+  try {
+    const raw = window.localStorage.getItem(HOSPITAL_CACHE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as { hospitals?: NearbyHospital[] };
+    return Array.isArray(parsed.hospitals) ? parsed.hospitals : [];
+  } catch {
+    return [];
+  }
+};
+
 const writeCachedGarages = (garages: NearbyGarage[]) => {
   try {
     window.localStorage.setItem(
@@ -150,6 +196,20 @@ const writeCachedGarages = (garages: NearbyGarage[]) => {
       JSON.stringify({
         savedAt: new Date().toISOString(),
         garages,
+      }),
+    );
+  } catch {
+    // Ignore localStorage quota or private-mode errors.
+  }
+};
+
+const writeCachedHospitals = (hospitals: NearbyHospital[]) => {
+  try {
+    window.localStorage.setItem(
+      HOSPITAL_CACHE_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        hospitals,
       }),
     );
   } catch {
@@ -263,6 +323,85 @@ const fetchGaragesFromOverpass = async (
     : new Error("Unable to fetch nearby garages from map service.");
 };
 
+const fetchHospitalsFromOverpass = async (
+  origin: LatLng,
+): Promise<NearbyHospital[]> => {
+  const radiusMeters = 7000;
+  const query = `[out:json][timeout:20];(node["amenity"="hospital"](around:${radiusMeters},${origin.lat},${origin.lng});way["amenity"="hospital"](around:${radiusMeters},${origin.lat},${origin.lng});relation["amenity"="hospital"](around:${radiusMeters},${origin.lat},${origin.lng}););out center tags;`;
+
+  let lastError: unknown = null;
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Overpass request failed (${response.status})`);
+      }
+
+      const payload = (await response.json()) as {
+        elements?: Array<{
+          id: number;
+          type: string;
+          lat?: number;
+          lon?: number;
+          center?: { lat?: number; lon?: number };
+          tags?: Record<string, string>;
+        }>;
+      };
+
+      const elements = Array.isArray(payload.elements) ? payload.elements : [];
+
+      const hospitals = elements
+        .map((element) => {
+          const lat =
+            element.lat ??
+            (isFiniteCoordinate(element.center?.lat)
+              ? element.center?.lat
+              : undefined);
+          const lng =
+            element.lon ??
+            (isFiniteCoordinate(element.center?.lon)
+              ? element.center?.lon
+              : undefined);
+
+          if (!isFiniteCoordinate(lat) || !isFiniteCoordinate(lng)) {
+            return null;
+          }
+
+          const name =
+            String(element.tags?.name || "Nearby Hospital").trim() ||
+            "Nearby Hospital";
+
+          return {
+            id: `osm-hospital-${element.type}-${element.id}`,
+            name,
+            phone: toPhoneText(element.tags),
+            address: toAddressText(element.tags),
+            location: { lat, lng },
+          } satisfies NearbyHospital;
+        })
+        .filter((item): item is NearbyHospital => Boolean(item));
+
+      if (hospitals.length > 0) {
+        return hospitals;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Unable to fetch nearby hospitals from map service.");
+};
+
 export const getNearbyGarages = async (
   origin: LatLng,
   limit = 3,
@@ -295,6 +434,43 @@ export const getNearbyGarages = async (
 
     return {
       garages: rankByDistance(origin, fallback).slice(0, limit),
+      source: "offline-cache",
+    };
+  }
+};
+
+export const getNearbyHospitals = async (
+  origin: LatLng,
+  limit = 3,
+): Promise<{
+  hospitals: DistanceEntry<NearbyHospital>[];
+  source: "online" | "offline-cache";
+}> => {
+  const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+
+  if (!online) {
+    const cached = readCachedHospitals();
+    const fallback = cached.length > 0 ? cached : HOSPITAL_DIRECTORY;
+    return {
+      hospitals: rankByDistance(origin, fallback).slice(0, limit),
+      source: "offline-cache",
+    };
+  }
+
+  try {
+    const liveHospitals = await fetchHospitalsFromOverpass(origin);
+    writeCachedHospitals(liveHospitals);
+
+    return {
+      hospitals: rankByDistance(origin, liveHospitals).slice(0, limit),
+      source: "online",
+    };
+  } catch {
+    const cached = readCachedHospitals();
+    const fallback = cached.length > 0 ? cached : HOSPITAL_DIRECTORY;
+
+    return {
+      hospitals: rankByDistance(origin, fallback).slice(0, limit),
       source: "offline-cache",
     };
   }

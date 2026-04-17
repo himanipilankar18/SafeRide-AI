@@ -18,7 +18,6 @@ import {
   getNearbyGarages,
   getDriverIncident,
   clearDriverIncident,
-  getNearestAvailableDriver,
 } from "@/lib/roadsideSupport";
 import L from "leaflet";
 import {
@@ -236,7 +235,8 @@ const MonitoringScreen = ({
   const [locationError, setLocationError] = useState<string | null>(null);
 
   const liveTripId = useMemo(() => tripId || `trip_${Date.now()}`, [tripId]);
-  const { connect, disconnect, send } = useLiveTracking(liveTripId, "driver");
+  const liveRole = isDriverMode ? "driver" : "passenger";
+  const { connect, disconnect, send } = useLiveTracking(liveTripId, liveRole);
   const watchIdRef = useRef<number | null>(null);
   const lastSendRef = useRef(0);
   const lastDeviationDistanceRef = useRef<number | null>(null);
@@ -267,6 +267,9 @@ const MonitoringScreen = ({
     useState<DriverIncidentState | null>(null);
   const [replacementDriver, setReplacementDriver] =
     useState<NearbyDriver | null>(null);
+  const [replacementCandidates, setReplacementCandidates] = useState<
+    Array<NearbyDriver & { distanceKm: number }>
+  >([]);
   const [isFindingReplacement, setIsFindingReplacement] = useState(false);
   const [showEmergencyAlert, setShowEmergencyAlert] = useState(false);
 
@@ -376,22 +379,86 @@ const MonitoringScreen = ({
     }
   };
 
-  const handleScheduleReplacementRide = () => {
+  const handleScheduleReplacementRide = async () => {
     setIsFindingReplacement(true);
+    setReplacementCandidates([]);
+    setReplacementDriver(null);
+    setDispatchStatus("Searching nearby available drivers...");
+    setDispatchStatusType("info");
 
     try {
-      const nearest = getNearestAvailableDriver(currentLocation);
+      const lookupResponse = await fetch(
+        `${API_BASE_URL}/rides/nearby-drivers?lat=${encodeURIComponent(
+          String(currentLocation.lat),
+        )}&lng=${encodeURIComponent(
+          String(currentLocation.lng),
+        )}&radiusKm=8&limit=5&excludePhone=${encodeURIComponent(
+          String(tripConfig.driverPhone || ""),
+        )}`,
+      );
+
+      const lookupData = await lookupResponse.json();
+      if (!lookupResponse.ok || !lookupData?.success) {
+        throw new Error(
+          lookupData?.message || "Unable to fetch nearby available drivers.",
+        );
+      }
+
+      const candidates = Array.isArray(lookupData?.drivers)
+        ? lookupData.drivers
+        : [];
+      setReplacementCandidates(candidates);
+
+      const nearest = candidates[0]
+        ? { item: candidates[0], distanceKm: Number(candidates[0].distanceKm) }
+        : null;
+
       if (!nearest) {
-        throw new Error("No nearby driver found right now.");
+        throw new Error(
+          "No nearby available driver found with live location in this area.",
+        );
       }
 
       setReplacementDriver(nearest.item);
-      onTripChange({
-        ...tripConfig,
-        driverName: nearest.item.name,
-        driverPhone: nearest.item.phone,
-        driverVehicleDetails: nearest.item.vehicle,
-      });
+
+      const applyLocalReplacement = () => {
+        onTripChange({
+          ...tripConfig,
+          source: currentLocation,
+          sourceLabel: "Current ride handoff point",
+          driverName: nearest.item.name,
+          driverPhone: nearest.item.phone,
+          driverVehicleDetails: nearest.item.vehicle,
+        });
+      };
+
+      const syncReplacement = async () => {
+        if (!tripId) {
+          applyLocalReplacement();
+          return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/rides/join-driver`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            otpCode: tripId,
+            driverPhone: nearest.item.phone,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data?.success || !data?.ride) {
+          throw new Error(
+            data?.message || "Failed to assign replacement driver",
+          );
+        }
+
+        applyLocalReplacement();
+      };
+
+      await syncReplacement();
+
       setDispatchStatus(
         `Replacement ride scheduled with ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km away).`,
       );
@@ -410,9 +477,112 @@ const MonitoringScreen = ({
     }
   };
 
+  const handleAssignSpecificReplacement = async (
+    candidate: NearbyDriver & { distanceKm: number },
+  ) => {
+    setIsFindingReplacement(true);
+
+    try {
+      const applyLocalReplacement = () => {
+        onTripChange({
+          ...tripConfig,
+          source: currentLocation,
+          sourceLabel: "Current ride handoff point",
+          driverName: candidate.name,
+          driverPhone: candidate.phone,
+          driverVehicleDetails: candidate.vehicle,
+        });
+      };
+
+      if (tripId) {
+        const response = await fetch(`${API_BASE_URL}/rides/join-driver`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            otpCode: tripId,
+            driverPhone: candidate.phone,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data?.success || !data?.ride) {
+          throw new Error(data?.message || "Failed to assign selected driver");
+        }
+      }
+
+      applyLocalReplacement();
+      setReplacementDriver(candidate);
+      setDispatchStatus(
+        `Replacement ride assigned to ${candidate.name} (${candidate.distanceKm.toFixed(1)} km away).`,
+      );
+      setDispatchStatusType("success");
+      clearDriverIncident();
+      setDriverIncident(null);
+    } catch (error) {
+      setDispatchStatus(
+        error instanceof Error
+          ? error.message
+          : "Unable to assign selected replacement driver.",
+      );
+      setDispatchStatusType("error");
+    } finally {
+      setIsFindingReplacement(false);
+    }
+  };
+
   useEffect(() => {
     connect(
       (event) => {
+        if (!isDriverMode) {
+          const isDirectDeviation = event.type === "deviation_alert";
+          const isDriverDeviation =
+            event.type === "driver_alert" &&
+            String(event.message || "")
+              .toLowerCase()
+              .includes("route deviation");
+          const isRiskDeviation =
+            event.type === "location_update" &&
+            Boolean(event.risk?.isDeviation);
+
+          if (isDirectDeviation || isDriverDeviation || isRiskDeviation) {
+            const severity =
+              event.severity === "danger" ||
+              event.level === "high" ||
+              event.risk?.level === "high"
+                ? "danger"
+                : "warning";
+            const rawRisk =
+              event.riskScore ??
+              (typeof event.risk?.routeDeviationScore === "number"
+                ? event.risk.routeDeviationScore * 100
+                : undefined) ??
+              (typeof event.details?.routeDeviationScore === "number"
+                ? event.details.routeDeviationScore * 100
+                : 0);
+            const riskScore = Math.max(0, Math.min(100, Number(rawRisk || 0)));
+            const trend =
+              event.trend === "away"
+                ? "away"
+                : event.trend === "closer"
+                  ? "closer"
+                  : "flat";
+            const minDistanceMeters =
+              event.risk?.minDistanceMeters ?? event.details?.minDistanceMeters;
+
+            setDeviationState({
+              severity,
+              distanceOffRouteKm:
+                typeof minDistanceMeters === "number"
+                  ? minDistanceMeters / 1000
+                  : 0,
+              riskScore,
+              trend,
+              message: event.message || "Route deviation detected.",
+            });
+            setShowDeviationPanel(true);
+          }
+        }
+
         if (event.type === "trip_complete") {
           onNavigate("summary");
         }
@@ -421,7 +591,7 @@ const MonitoringScreen = ({
     ).catch(console.error);
 
     return () => disconnect();
-  }, [connect, disconnect, onNavigate]);
+  }, [connect, disconnect, isDriverMode, onNavigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -525,7 +695,10 @@ const MonitoringScreen = ({
         }
 
         const now = Date.now();
-        if (now - lastSendRef.current > tripConfig.sampleIntervalSec * 1000) {
+        if (
+          isDriverMode &&
+          now - lastSendRef.current > tripConfig.sampleIntervalSec * 1000
+        ) {
           send("location_update", { location: livePoint });
           lastSendRef.current = now;
         }
@@ -544,7 +717,7 @@ const MonitoringScreen = ({
         watchIdRef.current = null;
       }
     };
-  }, [send, tripConfig.sampleIntervalSec]);
+  }, [isDriverMode, send, tripConfig.sampleIntervalSec]);
 
   useEffect(() => {
     type CompassOrientationEvent = DeviceOrientationEvent & {
@@ -585,13 +758,18 @@ const MonitoringScreen = ({
   ) as [number, number][];
 
   useEffect(() => {
-    if (!hasActiveTrip || mode === "offline" || routeLine.length === 0) {
+    if (
+      !hasActiveTrip ||
+      mode === "offline" ||
+      routeLine.length === 0 ||
+      !isDriverMode
+    ) {
       setDeviationState(null);
       return;
     }
 
-    const warningThresholdKm = Math.max(0.25, tripConfig.toleranceKm);
-    const dangerThresholdKm = Math.max(0.5, warningThresholdKm * 2);
+    const warningThresholdKm = Math.max(0.1, tripConfig.toleranceKm);
+    const dangerThresholdKm = Math.max(0.2, warningThresholdKm * 2);
     const distanceOffRouteKm = getMinRouteDistanceKm(
       currentLocation,
       routeLine,
@@ -660,6 +838,7 @@ const MonitoringScreen = ({
   }, [
     currentLocation,
     hasActiveTrip,
+    isDriverMode,
     mode,
     routeLine,
     send,
@@ -867,8 +1046,9 @@ const MonitoringScreen = ({
       )}
 
       {hasActiveTrip &&
+        !isDriverMode &&
         showDeviationPanel &&
-        (deviationState || driverIncident) && (
+        (deviationState || driverIncident || replacementDriver) && (
           <div className="absolute inset-x-4 bottom-[7.25rem] z-[1150] rounded-2xl border border-red-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1008,6 +1188,48 @@ const MonitoringScreen = ({
                 >
                   Call Replacement Driver
                 </button>
+              </div>
+            )}
+
+            {replacementCandidates.length > 0 && (
+              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <p className="text-xs font-bold text-blue-700">
+                  Available Drivers Nearby
+                </p>
+                <div className="mt-2 space-y-2">
+                  {replacementCandidates.map((candidate) => (
+                    <div
+                      key={`candidate-${candidate.id}`}
+                      className="rounded-lg border border-blue-200 bg-white px-3 py-2"
+                    >
+                      <p className="text-xs font-semibold text-gray-900">
+                        {candidate.name} · {candidate.vehicle}
+                      </p>
+                      <p className="text-[11px] text-gray-600">
+                        {candidate.phone} ·{" "}
+                        {Number(candidate.distanceKm).toFixed(1)} km away
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isFindingReplacement}
+                        onClick={() =>
+                          handleAssignSpecificReplacement(candidate)
+                        }
+                        className="mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-700 disabled:opacity-60"
+                      >
+                        Assign This Driver
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isFindingReplacement && (
+              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <p className="text-xs font-semibold text-blue-700">
+                  Searching for available drivers near your current location...
+                </p>
               </div>
             )}
 

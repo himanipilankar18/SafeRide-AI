@@ -11,11 +11,21 @@ import {
 } from "../db/sqlite.js";
 import { emitTripEvent } from "../liveTracking.js";
 
-const DEFAULT_DEVIATION_THRESHOLD_METERS = Number(process.env.ROUTE_DEVIATION_THRESHOLD_METERS || 250);
-const HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 = Number(process.env.HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 || -3.5);
-const HARSH_BRAKE_JERK_THRESHOLD_MPS3 = Number(process.env.HARSH_BRAKE_JERK_THRESHOLD_MPS3 || 4.5);
-const SMOOTH_BRAKING_WINDOW_SECONDS = Number(process.env.SMOOTH_BRAKING_WINDOW_SECONDS || 60);
-const SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS = Number(process.env.SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS || 2);
+const DEFAULT_DEVIATION_THRESHOLD_METERS = Number(
+  process.env.ROUTE_DEVIATION_THRESHOLD_METERS || 100,
+);
+const HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 = Number(
+  process.env.HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 || -3.5,
+);
+const HARSH_BRAKE_JERK_THRESHOLD_MPS3 = Number(
+  process.env.HARSH_BRAKE_JERK_THRESHOLD_MPS3 || 4.5,
+);
+const SMOOTH_BRAKING_WINDOW_SECONDS = Number(
+  process.env.SMOOTH_BRAKING_WINDOW_SECONDS || 60,
+);
+const SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS = Number(
+  process.env.SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS || 2,
+);
 
 const tripKinematics = new Map();
 
@@ -50,7 +60,11 @@ const parseExpectedRoute = (routeValue) => {
     }
   }
 
-  const points = Array.isArray(parsed?.polyline) ? parsed.polyline : Array.isArray(parsed) ? parsed : [];
+  const points = Array.isArray(parsed?.polyline)
+    ? parsed.polyline
+    : Array.isArray(parsed)
+      ? parsed
+      : [];
   return points
     .map((point) => {
       if (!Array.isArray(point) || point.length < 2) {
@@ -61,7 +75,9 @@ const parseExpectedRoute = (routeValue) => {
         lng: Number(point[1]),
       };
     })
-    .filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
+    .filter(
+      (point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng),
+    );
 };
 
 const computeDeviationScore = (location, expectedRoute, thresholdMeters) => {
@@ -91,14 +107,21 @@ const computeDeviationScore = (location, expectedRoute, thresholdMeters) => {
   };
 };
 
-const normalizeRiskInput = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+const normalizeRiskInput = (value) =>
+  Math.max(0, Math.min(1, Number(value) || 0));
 
-const computeBehaviorRisk = ({ fatigueScore = 0, distractionScore = 0, smoothBrakingScore = 1 }) => {
+const computeBehaviorRisk = ({
+  fatigueScore = 0,
+  distractionScore = 0,
+  smoothBrakingScore = 1,
+}) => {
   const fatigue = Math.max(0, Math.min(1, Number(fatigueScore) || 0));
   const distraction = Math.max(0, Math.min(1, Number(distractionScore) || 0));
   const brakingRisk = 1 - normalizeRiskInput(smoothBrakingScore);
 
-  const behaviorRisk = Number((fatigue * 0.45 + distraction * 0.35 + brakingRisk * 0.2).toFixed(4));
+  const behaviorRisk = Number(
+    (fatigue * 0.45 + distraction * 0.35 + brakingRisk * 0.2).toFixed(4),
+  );
 
   if (behaviorRisk >= 0.75) {
     return { score: behaviorRisk, level: "high" };
@@ -109,7 +132,10 @@ const computeBehaviorRisk = ({ fatigueScore = 0, distractionScore = 0, smoothBra
   return { score: behaviorRisk, level: "low" };
 };
 
-const computeOverallRisk = ({ behaviorRiskScore = 0, routeDeviationScore = 0 }) => {
+const computeOverallRisk = ({
+  behaviorRiskScore = 0,
+  routeDeviationScore = 0,
+}) => {
   const behavior = normalizeRiskInput(behaviorRiskScore);
   const deviation = normalizeRiskInput(routeDeviationScore);
 
@@ -166,7 +192,14 @@ const computeMotionMetrics = ({ tripId, location, timestampMs }) => {
       jerkMps3: null,
       harshBrakeDetected: false,
       smoothBrakingScore: Number(
-        (1 - Math.min(1, prev.harshBrakeTimestamps.length / Math.max(SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS, 1))).toFixed(4)
+        (
+          1 -
+          Math.min(
+            1,
+            prev.harshBrakeTimestamps.length /
+              Math.max(SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS, 1),
+          )
+        ).toFixed(4),
       ),
       harshBrakesInWindow: prev.harshBrakeTimestamps.length,
     };
@@ -175,22 +208,34 @@ const computeMotionMetrics = ({ tripId, location, timestampMs }) => {
   const distanceMeters = haversineMeters(prev.lastLocation, location);
   const speedMps = distanceMeters / dtSec;
   const accelerationMps2 =
-    prev.lastSpeedMps === null || prev.lastSpeedMps === undefined ? null : (speedMps - prev.lastSpeedMps) / dtSec;
+    prev.lastSpeedMps === null || prev.lastSpeedMps === undefined
+      ? null
+      : (speedMps - prev.lastSpeedMps) / dtSec;
   const jerkMps3 =
-    accelerationMps2 === null || prev.lastAccelerationMps2 === null || prev.lastAccelerationMps2 === undefined
+    accelerationMps2 === null ||
+    prev.lastAccelerationMps2 === null ||
+    prev.lastAccelerationMps2 === undefined
       ? null
       : (accelerationMps2 - prev.lastAccelerationMps2) / dtSec;
 
   const harshBrakeDetected =
-    (accelerationMps2 !== null && accelerationMps2 <= HARSH_BRAKE_ACCEL_THRESHOLD_MPS2) ||
-    (jerkMps3 !== null && jerkMps3 <= -Math.abs(HARSH_BRAKE_JERK_THRESHOLD_MPS3));
+    (accelerationMps2 !== null &&
+      accelerationMps2 <= HARSH_BRAKE_ACCEL_THRESHOLD_MPS2) ||
+    (jerkMps3 !== null &&
+      jerkMps3 <= -Math.abs(HARSH_BRAKE_JERK_THRESHOLD_MPS3));
 
   const recentHarshBrakes = prev.harshBrakeTimestamps
     .filter((ms) => timestampMs - ms <= windowMs)
     .concat(harshBrakeDetected ? [timestampMs] : []);
   const harshBrakesInWindow = recentHarshBrakes.length;
   const smoothBrakingScore = Number(
-    (1 - Math.min(1, harshBrakesInWindow / Math.max(SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS, 1))).toFixed(4)
+    (
+      1 -
+      Math.min(
+        1,
+        harshBrakesInWindow / Math.max(SMOOTH_BRAKING_ALLOWED_HARSH_EVENTS, 1),
+      )
+    ).toFixed(4),
   );
 
   tripKinematics.set(tripId, {
@@ -203,7 +248,8 @@ const computeMotionMetrics = ({ tripId, location, timestampMs }) => {
 
   return {
     speedMps: Number(speedMps.toFixed(4)),
-    accelerationMps2: accelerationMps2 === null ? null : Number(accelerationMps2.toFixed(4)),
+    accelerationMps2:
+      accelerationMps2 === null ? null : Number(accelerationMps2.toFixed(4)),
     jerkMps3: jerkMps3 === null ? null : Number(jerkMps3.toFixed(4)),
     harshBrakeDetected,
     smoothBrakingScore,
@@ -212,21 +258,29 @@ const computeMotionMetrics = ({ tripId, location, timestampMs }) => {
 };
 
 const buildAiInsights = ({ motion, deviationResult }) => {
-  const smoothBraking = motion.smoothBrakingScore >= 0.75 && !motion.harshBrakeDetected;
-  const laneDiscipline = !deviationResult.isDeviation && deviationResult.routeDeviationScore <= 0.25;
+  const smoothBraking =
+    motion.smoothBrakingScore >= 0.75 && !motion.harshBrakeDetected;
+  const laneDiscipline =
+    !deviationResult.isDeviation && deviationResult.routeDeviationScore <= 0.25;
 
   return [
     {
       key: "smooth_braking",
-      label: smoothBraking ? "Smooth braking detected" : "Braking pattern needs attention",
+      label: smoothBraking
+        ? "Smooth braking detected"
+        : "Braking pattern needs attention",
       status: smoothBraking ? "good" : "warn",
       value: motion.smoothBrakingScore,
     },
     {
       key: "lane_discipline",
-      label: laneDiscipline ? "Lane discipline maintained" : "Possible route/lane drift detected",
+      label: laneDiscipline
+        ? "Lane discipline maintained"
+        : "Possible route/lane drift detected",
       status: laneDiscipline ? "good" : "warn",
-      value: Number((1 - Math.min(1, deviationResult.routeDeviationScore)).toFixed(4)),
+      value: Number(
+        (1 - Math.min(1, deviationResult.routeDeviationScore)).toFixed(4),
+      ),
     },
   ];
 };
@@ -328,7 +382,11 @@ export const processLocationUpdate = async ({
   });
 
   const expectedRoute = parseExpectedRoute(trip.expected_route);
-  const deviationResult = computeDeviationScore(location, expectedRoute, DEFAULT_DEVIATION_THRESHOLD_METERS);
+  const deviationResult = computeDeviationScore(
+    location,
+    expectedRoute,
+    DEFAULT_DEVIATION_THRESHOLD_METERS,
+  );
 
   const motion = computeMotionMetrics({
     tripId: Number(tripId),
@@ -371,8 +429,14 @@ export const processLocationUpdate = async ({
   });
 
   let alert = null;
-  if (deviationResult.isDeviation || behaviorRisk.level !== "low" || motion.harshBrakeDetected) {
-    const reason = deviationResult.isDeviation ? "route_deviation" : "driver_behavior";
+  if (
+    deviationResult.isDeviation ||
+    behaviorRisk.level !== "low" ||
+    motion.harshBrakeDetected
+  ) {
+    const reason = deviationResult.isDeviation
+      ? "route_deviation"
+      : "driver_behavior";
     const alertLevel =
       overallRisk.level === "high" || motion.harshBrakeDetected
         ? "high"
@@ -384,7 +448,10 @@ export const processLocationUpdate = async ({
       tripId,
       type: reason,
       level: alertLevel,
-      actionTaken: alertLevel === "high" ? "escalate_to_passenger_and_buzzer" : "driver_warning",
+      actionTaken:
+        alertLevel === "high"
+          ? "escalate_to_passenger_and_buzzer"
+          : "driver_warning",
     });
 
     emitDriverAlert({
