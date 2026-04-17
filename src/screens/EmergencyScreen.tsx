@@ -185,7 +185,28 @@ const EmergencyScreen = ({
 
       const data = await response.json();
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Failed to send emergency alerts.");
+        const failureReasons = Array.isArray(data?.results)
+          ? data.results
+              .filter(
+                (item: {
+                  success?: boolean;
+                  error?: string;
+                  contact?: { phone?: string };
+                }) => !item?.success,
+              )
+              .map((item: { error?: string; contact?: { phone?: string } }) =>
+                item?.contact?.phone
+                  ? `${item.contact.phone}: ${item.error || "send failed"}`
+                  : item?.error || "send failed",
+              )
+              .slice(0, 2)
+          : [];
+
+        throw new Error(
+          failureReasons.length > 0
+            ? `SOS send failed. ${failureReasons.join(" | ")}`
+            : data.message || "Failed to send emergency alerts.",
+        );
       }
 
       setAlertStatus(data.message || "Emergency alerts sent.");

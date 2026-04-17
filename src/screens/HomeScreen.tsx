@@ -253,7 +253,7 @@ const HomeScreen = ({ onCreateRide }: HomeScreenProps) => {
         destinationLabel: destinationPlace.label,
         source: { lat: sourcePlace.lat, lng: sourcePlace.lng },
         destination: { lat: destinationPlace.lat, lng: destinationPlace.lng },
-        toleranceKm: 0.3,
+        toleranceKm: 0.25,
         sampleIntervalSec: 5,
         driverName: "SafeRide Driver",
         driverPhone: "+91 demo-driver",

@@ -21,17 +21,41 @@ const hasPlaceholderCredentials =
   /x{6,}/i.test(accountSid) ||
   authToken.includes("your_auth_token_here") ||
   twilioPhoneNumber === "+1234567890";
-const hasTwilioConfig = Boolean(accountSid && authToken && twilioPhoneNumber) && !hasPlaceholderCredentials;
+const hasTwilioConfig =
+  Boolean(accountSid && authToken && twilioPhoneNumber) &&
+  !hasPlaceholderCredentials;
 const hasSmsConfig = hasTwilioConfig;
 
 if (otpProvider === "mock" || !hasSmsConfig) {
-  console.warn("⚠️ Twilio credentials not configured. Using mock mode for testing.");
+  console.warn(
+    "⚠️ Twilio credentials not configured. Using mock mode for testing.",
+  );
 }
 
 const client = hasSmsConfig ? twilio(accountSid, authToken) : null;
 
-const asErrorMessage = (error) =>
-  error instanceof Error ? error.message : "Unknown SMS error";
+const asErrorMessage = (error) => {
+  if (!error) {
+    return "Unknown SMS error";
+  }
+
+  if (typeof error === "object") {
+    const twilioError = error;
+    const baseMessage =
+      typeof twilioError.message === "string" && twilioError.message.trim()
+        ? twilioError.message.trim()
+        : "Unknown SMS error";
+    const codeText =
+      typeof twilioError.code === "number" ||
+      typeof twilioError.code === "string"
+        ? ` (Twilio code: ${twilioError.code})`
+        : "";
+
+    return `${baseMessage}${codeText}`;
+  }
+
+  return error instanceof Error ? error.message : "Unknown SMS error";
+};
 
 export const sendOtpViaSms = async (phoneNumber, otp) => {
   const body = `SafeRide Security Code: ${otp}\n\nEnter this code to verify your ${phoneNumber} account. Valid for 10 minutes.`;
@@ -62,7 +86,8 @@ export const sendSms = async (phoneNumber, body) => {
   if (smsMode !== "direct") {
     return {
       success: false,
-      error: "SOS SMS is configured for Twilio Direct Messages API only. Set SMS_MODE=direct.",
+      error:
+        "SOS SMS is configured for Twilio Direct Messages API only. Set SMS_MODE=direct.",
     };
   }
 
@@ -80,9 +105,12 @@ export const sendSms = async (phoneNumber, body) => {
       from: twilioPhoneNumber,
       to: phoneNumber,
     });
+    console.log(`✅ SOS SMS sent to ${phoneNumber}. SID=${message.sid}`);
     return { success: true, sid: message.sid };
   } catch (error) {
-    return { success: false, error: asErrorMessage(error) };
+    const errorMessage = asErrorMessage(error);
+    console.error(`❌ SOS SMS failed for ${phoneNumber}: ${errorMessage}`);
+    return { success: false, error: errorMessage };
   }
 };
 

@@ -145,7 +145,9 @@ router.post("/alert", async (req, res) => {
       });
     }
 
-    const recipients = contacts.map(cleanContact).filter((contact) => contact.phone);
+    const recipients = contacts
+      .map(cleanContact)
+      .filter((contact) => contact.phone);
     if (recipients.length === 0) {
       return res.status(400).json({
         success: false,
@@ -166,7 +168,8 @@ router.post("/alert", async (req, res) => {
           return {
             contact,
             success: false,
-            error: "Invalid phone format. Use E.164 format, for example +919876543210.",
+            error:
+              "Invalid phone format. Use E.164 format, for example +919876543210.",
           };
         }
 
@@ -178,10 +181,23 @@ router.post("/alert", async (req, res) => {
     );
 
     const sentCount = results.filter((result) => result.success).length;
+    const failedResults = results.filter((result) => !result.success);
+    const firstFailure = failedResults[0];
+    const detailMessage =
+      firstFailure?.error && firstFailure?.contact?.phone
+        ? `${firstFailure.error} (recipient: ${firstFailure.contact.phone})`
+        : firstFailure?.error || null;
+
+    let message = `Sent ${sentCount} of ${recipients.length} emergency alerts`;
+    if (sentCount === 0 && detailMessage) {
+      message = `No SOS SMS sent. ${detailMessage}`;
+    } else if (sentCount < recipients.length && detailMessage) {
+      message = `${message}. Some recipients failed: ${detailMessage}`;
+    }
 
     res.status(200).json({
       success: sentCount > 0,
-      message: `Sent ${sentCount} of ${recipients.length} emergency alerts`,
+      message,
       sentCount,
       results,
     });
