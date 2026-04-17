@@ -5,6 +5,7 @@ import http from "http";
 import otpRoutes from "./routes/otp.js";
 import authRoutes from "./routes/auth.js";
 import emergencyRoutes from "./routes/emergency.js";
+import faceRoutes from "./routes/face.js";
 import { initializeLiveTracking } from "./liveTracking.js";
 
 dotenv.config();
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use("/api/otp", otpRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/emergency", emergencyRoutes);
+app.use("/api/face", faceRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

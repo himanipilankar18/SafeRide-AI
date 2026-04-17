@@ -11,6 +11,7 @@ import EmergencyScreen from "@/screens/EmergencyScreen";
 import TripSummaryScreen from "@/screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
+import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
 import { TripConfig } from "@/screens/HomeScreen";
 
 type Screen =
@@ -18,6 +19,7 @@ type Screen =
   | "role"
   | "login"
   | "home"
+  | "driverVerify"
   | "monitoring"
   | "emergency"
   | "summary";
@@ -25,6 +27,7 @@ type Screen =
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
   const [role, setRole] = useState<"driver" | "passenger" | null>(null);
+  const [driverCredential, setDriverCredential] = useState<string>(() => localStorage.getItem("phoneNumber") || "driver-demo");
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
   const [tripConfig, setTripConfig] = useState<TripConfig>({
     sourceLabel: "MG Road, Bangalore",
@@ -51,6 +54,9 @@ const Index = () => {
         break;
       case "monitoring":
         setHasActiveTrip(false);
+        setScreen(role === "driver" ? "driverVerify" : "home");
+        break;
+      case "driverVerify":
         setScreen("home");
         break;
       case "emergency":
@@ -80,14 +86,19 @@ const Index = () => {
           <LoginScreen
             key="login"
             userType={role ?? "passenger"}
-            onLogin={() => setScreen("home")}
+            onLogin={(user) => {
+              if (user.userType === "driver") {
+                setDriverCredential(user.phoneNumber || "driver-demo");
+              }
+              setScreen("home");
+            }}
           />
         );
       case "home":
         return role === "driver" ? (
           <DriverHomeScreen
             key="driver-home"
-            onGoOnline={() => setScreen("monitoring")}
+            onGoOnline={() => setScreen("driverVerify")}
           />
         ) : (
           <HomeScreen
@@ -98,6 +109,14 @@ const Index = () => {
               setScreen("monitoring");
             }}
             onNavigate={(s) => setScreen(s as Screen)}
+          />
+        );
+      case "driverVerify":
+        return (
+          <DriverVerificationScreen
+            key="driver-verify"
+            credential={driverCredential}
+            onVerified={() => setScreen("monitoring")}
           />
         );
       case "monitoring":
@@ -142,7 +161,13 @@ const Index = () => {
             <div className="absolute inset-x-0 bottom-0 z-[2000]">
               <BottomNav
                 active={screen}
-                onNavigate={(nextScreen) => setScreen(nextScreen as Screen)}
+                onNavigate={(nextScreen) => {
+                  if (role === "driver" && nextScreen === "monitoring") {
+                    setScreen("driverVerify");
+                    return;
+                  }
+                  setScreen(nextScreen as Screen);
+                }}
               />
             </div>
           )}
