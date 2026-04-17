@@ -29,7 +29,6 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import BottomNav from "@/components/BottomNav";
 
 type MapMode = "2d" | "offline";
 
@@ -1076,10 +1075,6 @@ const MonitoringScreen = ({
           </div>
         </div>
       )}
-
-      <div className="absolute inset-x-0 bottom-0 z-[1200]">
-        <BottomNav active="monitoring" onNavigate={onNavigate} />
-      </div>
     </motion.div>
   );
 };
