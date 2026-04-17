@@ -66,6 +66,29 @@ const Index = () => {
     return `${window.location.protocol}//${window.location.hostname}:5001/api`;
   };
 
+  const checkDriverOnboardingDone = async (phone: string) => {
+    try {
+      const response = await fetch(
+        `${resolveApiBase()}/auth/driver-onboarding/${encodeURIComponent(phone)}`,
+      );
+      const data = await response.json();
+      if (!response.ok || !data?.success || !data?.onboarding) {
+        return false;
+      }
+
+      const onboarding = data.onboarding;
+      return Boolean(
+        onboarding.driver_name &&
+          onboarding.car_number &&
+          onboarding.car_model &&
+          onboarding.face_credential &&
+          onboarding.face_registered,
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const handleBack = () => {
     switch (screen) {
       case "role":
@@ -124,12 +147,13 @@ const Index = () => {
           <LoginScreen
             key="login"
             userType={role ?? "passenger"}
-            onLogin={(user) => {
+            onLogin={async (user) => {
               if (user.userType === "driver") {
                 const phone = user.phoneNumber || "driver-demo";
                 setDriverCredential(phone);
 
-                setScreen("home");
+                const done = await checkDriverOnboardingDone(phone);
+                setScreen(done ? "home" : "driverVerify");
                 return;
               }
               setScreen("home");
@@ -140,14 +164,10 @@ const Index = () => {
         return role === "driver" ? (
           <DriverHomeScreen
             key="driver-home"
-            onGoOnline={() => {
-              const phone =
-                localStorage.getItem("phoneNumber") ||
-                driverCredential ||
-                "driver-demo";
-              const isFaceVerified =
-                localStorage.getItem(`driverFaceVerified:${phone}`) === "true";
-              setScreen(isFaceVerified ? "driverRideSetup" : "driverVerify");
+            onGoOnline={async () => {
+              const phone = localStorage.getItem("phoneNumber") || driverCredential || "driver-demo";
+              const done = await checkDriverOnboardingDone(phone);
+              setScreen(done ? "driverRideSetup" : "driverVerify");
             }}
             onOpenRoadsideHelp={() => setScreen("monitoring")}
             onOpenRegistration={() => setScreen("driverVerify")}
@@ -189,12 +209,14 @@ const Index = () => {
                   lat: trip.source.lat,
                   lng: trip.source.lng,
                 });
+
+                setScreen("passengerRideLive");
               } catch {
                 setJoinedRide(null);
+                setScreen("monitoring");
               }
 
               setHasActiveTrip(true);
-              setScreen("monitoring");
             }}
             onNavigate={(s) => setScreen(s as Screen)}
           />
@@ -205,12 +227,7 @@ const Index = () => {
             key="driver-verify"
             phoneNumber={driverCredential}
             onVerified={() => {
-              const phone =
-                localStorage.getItem("phoneNumber") ||
-                driverCredential ||
-                "driver-demo";
-              localStorage.setItem(`driverFaceVerified:${phone}`, "true");
-              setScreen("driverRideSetup");
+              setScreen("home");
             }}
           />
         );

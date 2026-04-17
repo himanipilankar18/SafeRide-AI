@@ -6,6 +6,7 @@ import {
   joinRideByOtpAsDriver,
   updateRideOtpLocation,
 } from "../db/sqlite.js";
+import { discoverAndStoreRouteGarages } from "../services/garageDiscovery.js";
 
 const router = express.Router();
 
@@ -67,6 +68,24 @@ router.post(
 
     if (!ride) {
       throw new Error("Could not generate ride OTP. Please try again.");
+    }
+
+    if (
+      Number.isFinite(Number(ride.start_lat)) &&
+      Number.isFinite(Number(ride.start_lng)) &&
+      Number.isFinite(Number(ride.end_lat)) &&
+      Number.isFinite(Number(ride.end_lng))
+    ) {
+      discoverAndStoreRouteGarages({
+        rideId: ride.ride_id,
+        startLat: ride.start_lat,
+        startLng: ride.start_lng,
+        endLat: ride.end_lat,
+        endLng: ride.end_lng,
+        limit: 12,
+      }).catch(() => {
+        // Route garage enrichment is best-effort; ride creation should remain fast.
+      });
     }
 
     res.status(201).json({

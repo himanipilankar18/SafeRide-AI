@@ -245,10 +245,51 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
       garage_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       phone TEXT,
+      address TEXT,
+      services_json TEXT,
       lat REAL NOT NULL,
       lng REAL NOT NULL,
       last_updated TEXT NOT NULL
     )
+  `);
+
+  try {
+    await runQuery(`ALTER TABLE garage_cache ADD COLUMN address TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE garage_cache ADD COLUMN services_json TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS ride_garages (
+      ride_id INTEGER NOT NULL,
+      garage_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      address TEXT,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      services_json TEXT,
+      distance_to_route_km REAL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (ride_id, garage_id),
+      FOREIGN KEY (ride_id) REFERENCES ride_otps(ride_id) ON DELETE CASCADE
+    )
+  `);
+
+  await runQuery(`
+    CREATE INDEX IF NOT EXISTS idx_ride_garages_ride_distance
+    ON ride_garages (ride_id, distance_to_route_km)
   `);
 
   await runQuery(`
@@ -877,7 +918,16 @@ export const triggerEmergencyEvent = async ({
   return getOne(`SELECT * FROM emergency_events WHERE event_id = ?`, [result.lastID]);
 };
 
-export const upsertGarage = async ({ garageId, name, phone = null, lat, lng, lastUpdated = nowIso() }) => {
+export const upsertGarage = async ({
+  garageId,
+  name,
+  phone = null,
+  address = null,
+  services = null,
+  lat,
+  lng,
+  lastUpdated = nowIso(),
+}) => {
   if ((garageId === undefined || garageId === null || String(garageId).trim() === "") || !name) {
     throw new Error("upsertGarage requires garageId and name");
   }
@@ -885,18 +935,115 @@ export const upsertGarage = async ({ garageId, name, phone = null, lat, lng, las
   const normalizedGarageId = String(garageId);
 
   await runQuery(
-    `INSERT INTO garage_cache (garage_id, name, phone, lat, lng, last_updated)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO garage_cache (garage_id, name, phone, address, services_json, lat, lng, last_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(garage_id) DO UPDATE SET
       name = excluded.name,
       phone = excluded.phone,
+      address = excluded.address,
+      services_json = excluded.services_json,
       lat = excluded.lat,
       lng = excluded.lng,
       last_updated = excluded.last_updated`,
-    [normalizedGarageId, name, phone, lat, lng, lastUpdated]
+    [
+      normalizedGarageId,
+      name,
+      phone,
+      address,
+      Array.isArray(services) ? JSON.stringify(services) : null,
+      lat,
+      lng,
+      lastUpdated,
+    ]
   );
 
   return getOne(`SELECT * FROM garage_cache WHERE garage_id = ?`, [normalizedGarageId]);
+};
+
+export const upsertRideGarages = async ({ rideId, garages = [], updatedAt = nowIso() }) => {
+  if (!rideId) {
+    throw new Error("upsertRideGarages requires rideId");
+  }
+
+  if (!Array.isArray(garages) || garages.length === 0) {
+    return [];
+  }
+
+  for (const garage of garages) {
+    if (!garage?.garageId || !garage?.name) {
+      continue;
+    }
+
+    await runQuery(
+      `INSERT INTO ride_garages (
+        ride_id,
+        garage_id,
+        name,
+        phone,
+        address,
+        lat,
+        lng,
+        services_json,
+        distance_to_route_km,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(ride_id, garage_id) DO UPDATE SET
+        name = excluded.name,
+        phone = excluded.phone,
+        address = excluded.address,
+        lat = excluded.lat,
+        lng = excluded.lng,
+        services_json = excluded.services_json,
+        distance_to_route_km = excluded.distance_to_route_km,
+        updated_at = excluded.updated_at`,
+      [
+        Number(rideId),
+        String(garage.garageId),
+        String(garage.name),
+        garage.phone ? String(garage.phone) : null,
+        garage.address ? String(garage.address) : null,
+        Number(garage.lat),
+        Number(garage.lng),
+        Array.isArray(garage.services) ? JSON.stringify(garage.services) : null,
+        garage.distanceToRouteKm ?? null,
+        updatedAt,
+        updatedAt,
+      ]
+    );
+  }
+
+  return getAll(
+    `SELECT * FROM ride_garages WHERE ride_id = ? ORDER BY distance_to_route_km ASC`,
+    [Number(rideId)]
+  );
+};
+
+export const getRideGarages = async ({ rideId, limit = 10 }) => {
+  if (!rideId) {
+    throw new Error("getRideGarages requires rideId");
+  }
+
+  return getAll(
+    `SELECT * FROM ride_garages WHERE ride_id = ? ORDER BY distance_to_route_km ASC LIMIT ?`,
+    [Number(rideId), Number(limit)]
+  );
+};
+
+export const getLatestActiveRideByDriverPhone = async (driverPhone) => {
+  if (!driverPhone) {
+    throw new Error("getLatestActiveRideByDriverPhone requires driverPhone");
+  }
+
+  return getOne(
+    `SELECT *
+     FROM ride_otps
+     WHERE driver_phone = ?
+       AND status IN ('active', 'waiting')
+     ORDER BY updated_at DESC, ride_id DESC
+     LIMIT 1`,
+    [String(driverPhone)]
+  );
 };
 
 export const upsertUserSession = async ({

@@ -17,11 +17,12 @@ const driverIcon = L.divIcon({
 });
 
 const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
+  const [rideDetails, setRideDetails] = useState<JoinedRidePayload>(ride);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(
     ride.lat !== null && ride.lng !== null ? { lat: ride.lat, lng: ride.lng } : null
   );
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [status, setStatus] = useState("Waiting for live location...");
+  const [status, setStatus] = useState("Waiting for driver to join OTP...");
 
   const apiBase = useMemo(() => {
     const configured = import.meta.env.VITE_API_BASE_URL;
@@ -44,6 +45,20 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
 
         if (cancelled || !response.ok || !data?.success || !data?.ride) {
           return;
+        }
+
+        setRideDetails((prev) => ({
+          ...prev,
+          driverName: data.ride.driver_name || prev.driverName,
+          carNumber: data.ride.car_number || prev.carNumber,
+          carModel: data.ride.car_model || prev.carModel,
+          faceImage: data.ride.face_image || prev.faceImage,
+          lat: data.ride.current_lat ?? prev.lat,
+          lng: data.ride.current_lng ?? prev.lng,
+        }));
+
+        if (data.ride.driver_name) {
+          setStatus("Driver joined. Credentials verified.");
         }
 
         if (data.ride.current_lat !== null && data.ride.current_lng !== null) {
@@ -95,11 +110,12 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
       </div>
 
       <div className="absolute inset-x-4 top-4 z-[1000] rounded-3xl border border-white/20 bg-black/60 p-4 text-white backdrop-blur">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">Ride Joined</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">OTP Ride</p>
+        <p className="mt-1 text-xs font-semibold text-primary-foreground/90">OTP: {rideDetails.otpCode}</p>
         <div className="mt-2 flex items-center gap-3">
           <div className="h-14 w-14 overflow-hidden rounded-xl border border-white/20 bg-white/10">
-            {ride.faceImage ? (
-              <img src={ride.faceImage} alt="Driver" className="h-full w-full object-cover" />
+            {rideDetails.faceImage ? (
+              <img src={rideDetails.faceImage} alt="Driver" className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <UserRound size={24} className="text-white/70" />
@@ -107,9 +123,9 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">{ride.driverName}</p>
-            <p className="truncate text-xs text-white/80">{ride.carModel}</p>
-            <p className="truncate text-xs text-white/80">{ride.carNumber}</p>
+            <p className="truncate text-sm font-bold">{rideDetails.driverName}</p>
+            <p className="truncate text-xs text-white/80">{rideDetails.carModel}</p>
+            <p className="truncate text-xs text-white/80">{rideDetails.carNumber}</p>
           </div>
         </div>
       </div>

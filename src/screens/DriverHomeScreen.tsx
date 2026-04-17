@@ -328,7 +328,7 @@ const DriverHomeScreen = ({
             className="mt-2 w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <UserRound size={16} />
-            Face Verification
+            Complete Registration
           </button>
         </div>
       </div>

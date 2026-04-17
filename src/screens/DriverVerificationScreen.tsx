@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, Play, ShieldCheck } from "lucide-react";
+import { Camera, Play, ShieldCheck, UserRound } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface DriverVerificationScreenProps {
   phoneNumber: string;
@@ -14,31 +15,29 @@ const LIVE_AVG_THRESHOLD = 0.9;
 const LIVE_MIN_THRESHOLD = 0.86;
 const REGISTER_PAIRWISE_THRESHOLD = 0.68;
 
-const DriverVerificationScreen = ({
-  phoneNumber,
-  onVerified,
-}: DriverVerificationScreenProps) => {
+const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificationScreenProps) => {
+  const [driverName, setDriverName] = useState("");
+  const [carNumber, setCarNumber] = useState("");
+  const [carModel, setCarModel] = useState("");
+  const [faceCredential, setFaceCredential] = useState(phoneNumber || "driver-demo");
+
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+
   const [isOpeningCamera, setIsOpeningCamera] = useState(false);
   const [showInAppCamera, setShowInAppCamera] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraMode, setCameraMode] = useState<"register" | "verify">(
-    "register",
-  );
+  const [cameraMode, setCameraMode] = useState<"register" | "verify">("register");
 
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [capturesByStage, setCapturesByStage] = useState<
-    Record<FaceStage, string | null>
-  >({
+  const [capturesByStage, setCapturesByStage] = useState<Record<FaceStage, string | null>>({
     CENTER: null,
     LEFT: null,
     RIGHT: null,
   });
 
-  const [registeredEmbeddings, setRegisteredEmbeddings] = useState<
-    Float32Array[]
-  >([]);
-  const [referenceEmbedding, setReferenceEmbedding] =
-    useState<Float32Array | null>(null);
+  const [registeredEmbeddings, setRegisteredEmbeddings] = useState<Float32Array[]>([]);
+  const [referenceEmbedding, setReferenceEmbedding] = useState<Float32Array | null>(null);
   const [hasLiveMlVerification, setHasLiveMlVerification] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
 
@@ -48,34 +47,43 @@ const DriverVerificationScreen = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    if (showInAppCamera && cameraStream) {
-      video.srcObject = cameraStream;
-      video.play().catch(() => {
-        setError("Camera opened but preview could not start. Re-open camera.");
-      });
-      return;
-    }
-
-    video.srcObject = null;
-  }, [cameraStream, showInAppCamera]);
-
   const currentStage = FACE_STAGES[currentStageIndex];
   const hasRegisteredFace =
     FACE_STAGES.every((stage) => Boolean(capturesByStage[stage])) &&
     Boolean(referenceEmbedding) &&
     registeredEmbeddings.length === 3;
 
+  const resolveApiBase = () => {
+    const configured = import.meta.env.VITE_API_BASE_URL;
+    if (typeof configured === "string" && configured.trim()) {
+      const clean = configured.trim().replace(/\/$/, "");
+      return clean.endsWith("/api") ? clean : `${clean}/api`;
+    }
+
+    if (typeof window !== "undefined") {
+      return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+    }
+
+    return "http://localhost:5001/api";
+  };
+
+  const apiBase = useMemo(resolveApiBase, []);
+
   const toUserFriendlyError = (fallback: string, err: unknown) => {
+    if (err instanceof TypeError) {
+      return "Cannot reach backend. Start the server and check VITE_API_BASE_URL.";
+    }
     if (err instanceof Error && err.message.trim()) {
       return err.message;
     }
     return fallback;
+  };
+
+  const isValidIndianCarNumber = (value: string) => {
+    const compact = value.toUpperCase().replace(/\s+/g, "");
+    const standardPattern = /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{4}$/;
+    const bhPattern = /^\d{2}BH\d{4}[A-Z]{1,2}$/;
+    return standardPattern.test(compact) || bhPattern.test(compact);
   };
 
   const normalize = (vec: Float32Array) => {
@@ -110,33 +118,23 @@ const DriverVerificationScreen = ({
     return dot / Math.sqrt(na * nb);
   };
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => window.setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const detectSingleFaceBox = async (sourceCanvas: HTMLCanvasElement) => {
-    const FaceDetectorCtor = (window as unknown as { FaceDetector?: any })
-      .FaceDetector;
+    const FaceDetectorCtor = (window as unknown as { FaceDetector?: any }).FaceDetector;
     if (!FaceDetectorCtor) {
       return null;
     }
 
-    const detector = new FaceDetectorCtor({
-      fastMode: true,
-      maxDetectedFaces: 5,
-    });
-
+    const detector = new FaceDetectorCtor({ fastMode: true, maxDetectedFaces: 5 });
     const faces = await detector.detect(sourceCanvas);
     if (!Array.isArray(faces) || faces.length !== 1) {
-      throw new Error(
-        "Exactly one face must be visible in frame. No bystanders in camera view.",
-      );
+      throw new Error("Exactly one face must be visible in frame. No bystanders in camera view.");
     }
 
     const box = faces[0]?.boundingBox;
     if (!box || box.width < 24 || box.height < 24) {
-      throw new Error(
-        "Face is too small. Move closer and keep your face centered.",
-      );
+      throw new Error("Face is too small. Move closer and keep your face centered.");
     }
 
     return {
@@ -168,16 +166,9 @@ const DriverVerificationScreen = ({
       const padH = detected.height * 0.45;
       cropX = Math.max(0, Math.floor(detected.x - padW));
       cropY = Math.max(0, Math.floor(detected.y - padH));
-      cropW = Math.min(
-        source.width - cropX,
-        Math.floor(detected.width + padW * 2),
-      );
-      cropH = Math.min(
-        source.height - cropY,
-        Math.floor(detected.height + padH * 2),
-      );
+      cropW = Math.min(source.width - cropX, Math.floor(detected.width + padW * 2));
+      cropH = Math.min(source.height - cropY, Math.floor(detected.height + padH * 2));
     } else {
-      // Fallback when FaceDetector API is unavailable.
       cropW = Math.floor(source.width * 0.72);
       cropH = Math.floor(source.height * 0.86);
       cropX = Math.floor((source.width - cropW) / 2);
@@ -209,14 +200,11 @@ const DriverVerificationScreen = ({
           }
 
           const data = ctx.getImageData(0, 0, 128, 128).data;
-
           const gray = new Float32Array(128 * 128);
           let sum = 0;
           for (let i = 0; i < gray.length; i += 1) {
             const p = i * 4;
-            const g =
-              (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) /
-              255;
+            const g = (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) / 255;
             gray[i] = g;
             sum += g;
           }
@@ -230,17 +218,11 @@ const DriverVerificationScreen = ({
           const std = Math.sqrt(variance / gray.length);
 
           if (std < 0.06) {
-            reject(
-              new Error("Image quality too low. Keep face clear and well-lit."),
-            );
+            reject(new Error("Image quality too low. Keep face clear and well-lit."));
             return;
           }
           if (mean < 0.12 || mean > 0.92) {
-            reject(
-              new Error(
-                "Lighting is not suitable. Avoid very dark or overexposed frames.",
-              ),
-            );
+            reject(new Error("Lighting is not suitable. Avoid very dark or overexposed frames."));
             return;
           }
 
@@ -267,34 +249,8 @@ const DriverVerificationScreen = ({
               const gBin = Math.floor(mag * 24);
               gradHist[Math.min(23, Math.max(0, gBin))] += 1;
 
-              const iBin = Math.floor(
-                Math.min(0.999, Math.max(0, center)) * 24,
-              );
+              const iBin = Math.floor(Math.min(0.999, Math.max(0, center)) * 24);
               intensityHist[Math.min(23, Math.max(0, iBin))] += 1;
-            }
-          }
-
-          const blockMeans: number[] = [];
-          const blockStd: number[] = [];
-          const blockSize = 16;
-          for (let by = 0; by < 8; by += 1) {
-            for (let bx = 0; bx < 8; bx += 1) {
-              let blockSum = 0;
-              let blockSq = 0;
-              for (let y = 0; y < blockSize; y += 1) {
-                for (let x = 0; x < blockSize; x += 1) {
-                  const px = bx * blockSize + x;
-                  const py = by * blockSize + y;
-                  const value = gray[py * 128 + px];
-                  blockSum += value;
-                  blockSq += value * value;
-                }
-              }
-              const n = blockSize * blockSize;
-              const bMean = blockSum / n;
-              const bVar = Math.max(0, blockSq / n - bMean * bMean);
-              blockMeans.push(bMean);
-              blockStd.push(Math.sqrt(bVar));
             }
           }
 
@@ -304,37 +260,15 @@ const DriverVerificationScreen = ({
             intensityHist[i] /= totalPixels;
           }
 
-          const signature = new Float32Array(
-            coarse.length +
-              gradHist.length +
-              intensityHist.length +
-              blockMeans.length +
-              blockStd.length,
-          );
+          const signature = new Float32Array(coarse.length + gradHist.length + intensityHist.length);
           let cursor = 0;
-          for (let i = 0; i < coarse.length; i += 1) {
-            signature[cursor++] = coarse[i];
-          }
-          for (let i = 0; i < gradHist.length; i += 1) {
-            signature[cursor++] = gradHist[i];
-          }
-          for (let i = 0; i < intensityHist.length; i += 1) {
-            signature[cursor++] = intensityHist[i];
-          }
-          for (let i = 0; i < blockMeans.length; i += 1) {
-            signature[cursor++] = blockMeans[i];
-          }
-          for (let i = 0; i < blockStd.length; i += 1) {
-            signature[cursor++] = blockStd[i];
-          }
+          for (let i = 0; i < coarse.length; i += 1) signature[cursor++] = coarse[i];
+          for (let i = 0; i < gradHist.length; i += 1) signature[cursor++] = gradHist[i];
+          for (let i = 0; i < intensityHist.length; i += 1) signature[cursor++] = intensityHist[i];
 
           resolve(normalize(signature));
         } catch (e) {
-          reject(
-            e instanceof Error
-              ? e
-              : new Error("Failed to build in-app face signature"),
-          );
+          reject(e instanceof Error ? e : new Error("Failed to build in-app face signature"));
         }
       };
       image.onerror = () => reject(new Error("Failed to read captured image"));
@@ -345,13 +279,9 @@ const DriverVerificationScreen = ({
     const len = vectors[0]?.length || 0;
     const avg = new Float32Array(len);
     for (const vec of vectors) {
-      for (let i = 0; i < len; i += 1) {
-        avg[i] += vec[i];
-      }
+      for (let i = 0; i < len; i += 1) avg[i] += vec[i];
     }
-    for (let i = 0; i < len; i += 1) {
-      avg[i] /= vectors.length;
-    }
+    for (let i = 0; i < len; i += 1) avg[i] /= vectors.length;
     return normalize(avg);
   };
 
@@ -364,6 +294,75 @@ const DriverVerificationScreen = ({
     }
     return minVal;
   };
+
+  const saveOnboardingProfile = async ({ faceRegistered, faceImage = null }: { faceRegistered: boolean; faceImage?: string | null; }) => {
+    if (!phoneNumber || !driverName.trim() || !carNumber.trim() || !carModel.trim() || !faceCredential.trim()) {
+      throw new Error("Fill driver name, car number, car model, and face credential");
+    }
+    if (!isValidIndianCarNumber(carNumber)) {
+      throw new Error("Enter a valid car number (e.g. MH 02 AB 1234 or 22 BH 1234 AA)");
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const response = await fetch(`${apiBase}/auth/driver-onboarding`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber,
+          driverName: driverName.trim(),
+          carNumber: carNumber.trim().toUpperCase(),
+          carModel: carModel.trim(),
+          faceCredential: faceCredential.trim(),
+          faceImage,
+          faceRegistered,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to save onboarding profile");
+      }
+      setProfileSaved(true);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadExistingOnboarding = async () => {
+      if (!phoneNumber) return;
+      try {
+        const response = await fetch(`${apiBase}/auth/driver-onboarding/${encodeURIComponent(phoneNumber)}`);
+        const data = await response.json();
+        if (cancelled || !response.ok || !data?.success || !data?.onboarding) return;
+
+        const onboarding = data.onboarding;
+        setDriverName(onboarding.driver_name || "");
+        setCarNumber(onboarding.car_number || "");
+        setCarModel(onboarding.car_model || "");
+        setFaceCredential(onboarding.face_credential || phoneNumber);
+
+        const savedFace = onboarding.face_image || null;
+        if (savedFace) {
+          setCapturesByStage({ CENTER: savedFace, LEFT: savedFace, RIGHT: savedFace });
+          setProfileSaved(true);
+          setCurrentStageIndex(2);
+        }
+        if (onboarding.face_registered) {
+          setHasLiveMlVerification(true);
+          setProfileSaved(true);
+        }
+      } catch {
+        // noop
+      }
+    };
+
+    loadExistingOnboarding();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, phoneNumber]);
 
   const stopCamera = () => {
     if (cameraStream) {
@@ -385,33 +384,20 @@ const DriverVerificationScreen = ({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 960 },
-          height: { ideal: 720 },
-          facingMode: "user",
-        },
+        video: { width: { ideal: 960 }, height: { ideal: 720 }, facingMode: "user" },
         audio: false,
       });
-
       setCameraStream(stream);
       setShowInAppCamera(true);
-      setMessage(
-        mode === "register"
-          ? "In-app ML capture: CENTER, LEFT, RIGHT."
-          : "Live check mode: keep your face centered and verify.",
-      );
+      setMessage(mode === "register" ? "In-app ML capture: CENTER, LEFT, RIGHT." : "Live check mode: keep your face centered and verify.");
     } catch (e) {
       if (e instanceof DOMException) {
         if (e.name === "NotAllowedError") {
-          setError(
-            "Camera permission denied. Allow camera access in browser/site settings.",
-          );
+          setError("Camera permission denied. Allow camera access in browser/site settings.");
         } else if (e.name === "NotFoundError") {
           setError("No camera device found.");
         } else if (e.name === "NotReadableError") {
-          setError(
-            "Camera is busy in another app/tab. Close other camera apps and retry.",
-          );
+          setError("Camera is busy in another app/tab. Close other camera apps and retry.");
         } else {
           setError(toUserFriendlyError("Failed to open in-app camera", e));
         }
@@ -424,23 +410,15 @@ const DriverVerificationScreen = ({
   };
 
   const snapshotFromVideo = () => {
-    if (!videoRef.current || !canvasRef.current) {
-      throw new Error("Camera preview is not ready.");
-    }
-
+    if (!videoRef.current || !canvasRef.current) throw new Error("Camera preview is not ready.");
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const width = video.videoWidth || 960;
     const height = video.videoHeight || 720;
-
     canvas.width = width;
     canvas.height = height;
-
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("Unable to read camera frame.");
-    }
-
+    if (!ctx) throw new Error("Unable to read camera frame.");
     ctx.drawImage(video, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", 0.9);
   };
@@ -449,9 +427,7 @@ const DriverVerificationScreen = ({
     const frames: string[] = [];
     for (let i = 0; i < count; i += 1) {
       frames.push(snapshotFromVideo());
-      if (i < count - 1) {
-        await sleep(delayMs);
-      }
+      if (i < count - 1) await sleep(delayMs);
     }
     return frames;
   };
@@ -459,34 +435,24 @@ const DriverVerificationScreen = ({
   const captureStage = async () => {
     setError(null);
     setMessage(null);
-
     try {
-      const snapshot = snapshotFromVideo();
+      if (!driverName.trim() || !carNumber.trim() || !carModel.trim()) {
+        throw new Error("Fill and save driver details first.");
+      }
 
-      setCapturesByStage((prev) => ({
-        ...prev,
-        [currentStage]: snapshot,
-      }));
+      const snapshot = snapshotFromVideo();
+      setCapturesByStage((prev) => ({ ...prev, [currentStage]: snapshot }));
 
       if (currentStageIndex < FACE_STAGES.length - 1) {
         setCurrentStageIndex((value) => value + 1);
-        setMessage(
-          `${currentStage} captured. Now face ${FACE_STAGES[currentStageIndex + 1]}.`,
-        );
+        setMessage(`${currentStage} captured. Now face ${FACE_STAGES[currentStageIndex + 1]}.`);
         return;
       }
 
       const finalCaptures: Record<FaceStage, string> = {
-        CENTER:
-          currentStage === "CENTER"
-            ? snapshot
-            : capturesByStage.CENTER || snapshot,
-        LEFT:
-          currentStage === "LEFT" ? snapshot : capturesByStage.LEFT || snapshot,
-        RIGHT:
-          currentStage === "RIGHT"
-            ? snapshot
-            : capturesByStage.RIGHT || snapshot,
+        CENTER: currentStage === "CENTER" ? snapshot : capturesByStage.CENTER || snapshot,
+        LEFT: currentStage === "LEFT" ? snapshot : capturesByStage.LEFT || snapshot,
+        RIGHT: currentStage === "RIGHT" ? snapshot : capturesByStage.RIGHT || snapshot,
       };
 
       const vectors = await Promise.all([
@@ -497,20 +463,16 @@ const DriverVerificationScreen = ({
 
       const pairMin = minPairwiseSimilarity(vectors);
       if (pairMin < REGISTER_PAIRWISE_THRESHOLD) {
-        throw new Error(
-          "Angles are inconsistent. Keep only one face in frame and retry capture.",
-        );
+        throw new Error("Angles are inconsistent. Keep only one face in frame and retry capture.");
       }
 
       setRegisteredEmbeddings(vectors);
       setReferenceEmbedding(averageEmbedding(vectors));
       setHasLiveMlVerification(false);
       stopCamera();
-      setMessage("In-app ML profile created. Run live verification now.");
+      setMessage("Face signature registered. Run live verification now.");
     } catch (e) {
-      setError(
-        toUserFriendlyError("Failed to capture/register in-app face", e),
-      );
+      setError(toUserFriendlyError("Failed to capture/register in-app face", e));
     }
   };
 
@@ -525,9 +487,7 @@ const DriverVerificationScreen = ({
       }
 
       const burst = await captureBurst(3, 220);
-      const probes = await Promise.all(
-        burst.map((frame) => embeddingFromDataUrl(frame)),
-      );
+      const probes = await Promise.all(burst.map((frame) => embeddingFromDataUrl(frame)));
       const bestPerProbe = probes.map((probe) => {
         let best = -1;
         for (const reg of registeredEmbeddings) {
@@ -536,25 +496,20 @@ const DriverVerificationScreen = ({
         return best;
       });
 
-      const avgSimilarity =
-        bestPerProbe.reduce((sum, v) => sum + v, 0) / bestPerProbe.length;
+      const avgSimilarity = bestPerProbe.reduce((sum, v) => sum + v, 0) / bestPerProbe.length;
       const minSimilarity = Math.min(...bestPerProbe);
 
-      if (
-        avgSimilarity < LIVE_AVG_THRESHOLD ||
-        minSimilarity < LIVE_MIN_THRESHOLD
-      ) {
+      if (avgSimilarity < LIVE_AVG_THRESHOLD || minSimilarity < LIVE_MIN_THRESHOLD) {
         setHasLiveMlVerification(false);
-        throw new Error(
-          `Face mismatch. Avg ${(avgSimilarity * 100).toFixed(1)}%, min ${(minSimilarity * 100).toFixed(1)}%. Ensure only your face is visible and retry.`,
-        );
+        throw new Error("Face mismatch. Ensure only your face is visible and retry.");
       }
+
+      const faceImage = capturesByStage.CENTER || burst[0] || null;
+      await saveOnboardingProfile({ faceRegistered: true, faceImage });
 
       setHasLiveMlVerification(true);
       stopCamera();
-      setMessage(
-        `Strict in-app ML approved. Avg ${(avgSimilarity * 100).toFixed(1)}%, min ${(minSimilarity * 100).toFixed(1)}%.`,
-      );
+      setMessage("Driver registration completed successfully.");
     } catch (e) {
       setError(toUserFriendlyError("Failed to verify in-app face", e));
     } finally {
@@ -570,6 +525,24 @@ const DriverVerificationScreen = ({
   }, [cameraMode, currentStage]);
 
   useEffect(() => {
+    if (!showInAppCamera || !cameraStream || !videoRef.current) {
+      return;
+    }
+
+    const video = videoRef.current;
+    video.srcObject = cameraStream;
+    video.play().catch(() => {
+      setError("Camera opened but preview could not start. Re-open camera.");
+    });
+
+    return () => {
+      if (video.srcObject) {
+        video.srcObject = null;
+      }
+    };
+  }, [cameraStream, showInAppCamera]);
+
+  useEffect(() => {
     return () => {
       if (cameraStream) {
         cameraStream.getTracks().forEach((track) => track.stop());
@@ -578,169 +551,115 @@ const DriverVerificationScreen = ({
   }, [cameraStream]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="h-full overflow-y-auto px-5 pb-6 pt-12"
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full overflow-y-auto px-5 pb-6 pt-12">
       <div className="mb-4 pr-8">
-        <h2 className="text-xl font-extrabold text-foreground">
-          In-App Driver Face Verification
-        </h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          ML logic runs fully in-app. No profile registration form.
-        </p>
+        <h2 className="text-xl font-extrabold text-foreground">Driver Registration + Face Verification</h2>
+        <p className="text-xs text-muted-foreground mt-1">Register once with driver details and strict in-app face verification.</p>
       </div>
 
       <div className="space-y-3">
         <div className="rounded-2xl border border-border bg-card p-4">
-          <p className="text-sm text-foreground font-medium">
-            Driver: {phoneNumber || "driver-demo"}
-          </p>
+          <div className="flex items-center gap-2">
+            <UserRound size={16} className="text-primary" />
+            <p className="text-sm text-foreground font-medium">Phone: {phoneNumber || "driver-demo"}</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+          <p className="text-sm font-semibold text-foreground">Step 0: Driver Details</p>
+          <Input placeholder="Driver name" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+          <Input placeholder="Car number (e.g. MH 02 AB 1234)" value={carNumber} onChange={(e) => setCarNumber(e.target.value)} />
+          <Input placeholder="Car model (e.g. Hyundai i20)" value={carModel} onChange={(e) => setCarModel(e.target.value)} />
+          <Input placeholder="Face credential" value={faceCredential} onChange={(e) => setFaceCredential(e.target.value)} />
+          <button
+            type="button"
+            onClick={async () => {
+              setError(null);
+              setMessage(null);
+              try {
+                await saveOnboardingProfile({
+                  faceRegistered: hasLiveMlVerification,
+                  faceImage: capturesByStage.CENTER || null,
+                });
+                setMessage("Driver details saved.");
+              } catch (e) {
+                setError(toUserFriendlyError("Failed to save driver details", e));
+              }
+            }}
+            disabled={isSavingProfile}
+            className="w-full py-3 rounded-xl bg-foreground text-background font-semibold disabled:opacity-60"
+          >
+            {isSavingProfile ? "Saving..." : "Save Driver Details"}
+          </button>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Camera size={18} className="text-primary" />
-            <p className="text-sm font-semibold text-foreground">
-              Step 1: Register In-App Face Signature
-            </p>
+            <p className="text-sm font-semibold text-foreground">Step 1: Register In-App Face Signature</p>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             {FACE_STAGES.map((stage) => (
-              <div
-                key={stage}
-                className="rounded-lg border border-border bg-background/60 p-2 text-center"
-              >
-                <p className="text-[10px] font-semibold text-muted-foreground">
-                  {stage}
-                </p>
-                <p
-                  className={`text-[11px] font-semibold ${capturesByStage[stage] ? "text-safe" : "text-warning"}`}
-                >
+              <div key={stage} className="rounded-lg border border-border bg-background/60 p-2 text-center">
+                <p className="text-[10px] font-semibold text-muted-foreground">{stage}</p>
+                <p className={`text-[11px] font-semibold ${capturesByStage[stage] ? "text-safe" : "text-warning"}`}>
                   {capturesByStage[stage] ? "Captured" : "Pending"}
                 </p>
               </div>
             ))}
           </div>
 
-          <button
-            onClick={() => openInAppCamera("register")}
-            disabled={isOpeningCamera || showInAppCamera}
-            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-60"
-          >
-            {isOpeningCamera
-              ? "Opening camera..."
-              : showInAppCamera
-                ? "Camera Open"
-                : "Open Camera For Registration"}
+          <button onClick={() => openInAppCamera("register")} disabled={isOpeningCamera || showInAppCamera} className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-60">
+            {isOpeningCamera ? "Opening camera..." : showInAppCamera ? "Camera Open" : "Open Camera For Registration"}
           </button>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} className="text-primary" />
-            <p className="text-sm font-semibold text-foreground">
-              Step 2: Live Verify Against Registered Face
-            </p>
+            <p className="text-sm font-semibold text-foreground">Step 2: Live Verify Against Registered Face</p>
           </div>
           <div className="rounded-lg border border-border bg-background/60 p-2 text-center">
-            <p className="text-[11px] font-semibold text-muted-foreground">
-              Verification status
-            </p>
-            <p
-              className={`text-[12px] font-semibold ${hasLiveMlVerification ? "text-safe" : "text-warning"}`}
-            >
+            <p className="text-[11px] font-semibold text-muted-foreground">Verification status</p>
+            <p className={`text-[12px] font-semibold ${hasLiveMlVerification ? "text-safe" : "text-warning"}`}>
               {hasLiveMlVerification ? "Approved" : "Pending"}
             </p>
           </div>
-          <button
-            onClick={() => openInAppCamera("verify")}
-            disabled={isOpeningCamera || showInAppCamera || !hasRegisteredFace}
-            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-60"
-          >
+          <button onClick={() => openInAppCamera("verify")} disabled={isOpeningCamera || showInAppCamera || !hasRegisteredFace} className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-60">
             Open Live Verification Camera
           </button>
         </div>
 
         {showInAppCamera && (
           <div className="rounded-xl border border-border bg-background/70 p-3 space-y-3">
-            <div className="rounded-lg bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">
-              {cameraStatusLabel}
-            </div>
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full rounded-lg border border-border bg-black/80 aspect-video object-cover"
-              onLoadedMetadata={() => {
-                if (videoRef.current) {
-                  videoRef.current.play().catch(() => {
-                    setError(
-                      "Camera opened but preview could not start. Re-open camera.",
-                    );
-                  });
-                }
-              }}
-            />
+            <div className="rounded-lg bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">{cameraStatusLabel}</div>
+            <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80 aspect-video object-cover" />
             <div className="grid grid-cols-2 gap-2">
               {cameraMode === "register" ? (
-                <button
-                  onClick={captureStage}
-                  className="py-2 rounded-lg bg-safe text-safe-foreground font-semibold text-sm"
-                >
-                  Capture {currentStage}
-                </button>
+                <button onClick={captureStage} className="py-2 rounded-lg bg-safe text-safe-foreground font-semibold text-sm">Capture {currentStage}</button>
               ) : (
-                <button
-                  onClick={verifyLiveFaceNow}
-                  disabled={isVerifying}
-                  className="py-2 rounded-lg bg-safe text-safe-foreground font-semibold text-sm disabled:opacity-60"
-                >
+                <button onClick={verifyLiveFaceNow} disabled={isVerifying} className="py-2 rounded-lg bg-safe text-safe-foreground font-semibold text-sm disabled:opacity-60">
                   {isVerifying ? "Verifying..." : "Verify Me Now"}
                 </button>
               )}
-              <button
-                onClick={stopCamera}
-                className="py-2 rounded-lg bg-muted text-foreground font-semibold text-sm"
-              >
-                Close Camera
-              </button>
+              <button onClick={stopCamera} className="py-2 rounded-lg bg-muted text-foreground font-semibold text-sm">Close Camera</button>
             </div>
             <canvas ref={canvasRef} className="hidden" />
           </div>
         )}
 
-        {message && (
-          <div className="rounded-xl bg-green-100 text-green-800 text-xs px-3 py-2">
-            {message}
-          </div>
-        )}
-        {error && (
-          <div className="rounded-xl bg-red-100 text-red-800 text-xs px-3 py-2">
-            {error}
-          </div>
-        )}
+        {message && <div className="rounded-xl bg-green-100 text-green-800 text-xs px-3 py-2">{message}</div>}
+        {error && <div className="rounded-xl bg-red-100 text-red-800 text-xs px-3 py-2">{error}</div>}
       </div>
 
       <div className="mt-4 rounded-2xl border border-border bg-card p-4 mb-2">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck size={16} className="text-primary" />
-          <p className="text-sm font-semibold text-foreground">
-            Ready to Continue
-          </p>
+          <p className="text-sm font-semibold text-foreground">Ready to Continue</p>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Continue only after successful strict in-app ML live verification.
-        </p>
-        <button
-          onClick={onVerified}
-          disabled={!hasLiveMlVerification}
-          className="w-full py-3 rounded-xl bg-foreground text-background font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
+        <p className="text-xs text-muted-foreground mb-3">Continue only after details saved and face verification approved.</p>
+        <button onClick={onVerified} disabled={!profileSaved || !hasLiveMlVerification} className="w-full py-3 rounded-xl bg-foreground text-background font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
           <Play size={16} />
           Continue to Driver Dashboard
         </button>
