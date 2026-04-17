@@ -3,11 +3,13 @@ import { MapPin, Phone, Share2, Trash2, UserPlus } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
+import BottomNav from "@/components/BottomNav";
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
 
 interface EmergencyScreenProps {
   onBack: () => void;
+  onNavigate: (screen: string) => void;
   tripConfig: TripConfig;
   hasActiveTrip?: boolean;
 }
@@ -18,8 +20,29 @@ type EmergencyContact = {
   phone: string;
 };
 
+const normalizePhoneNumber = (value: string) => {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/[^\d+]/g, "");
+
+  if (digits.startsWith("+")) {
+    return digits;
+  }
+
+  const numericOnly = trimmed.replace(/\D/g, "");
+  if (numericOnly.length === 10) {
+    return `+91${numericOnly}`;
+  }
+
+  if (numericOnly.length === 11 && numericOnly.startsWith("0")) {
+    return `+91${numericOnly.slice(1)}`;
+  }
+
+  return trimmed;
+};
+
 const EmergencyScreen = ({
   onBack,
+  onNavigate,
   tripConfig,
   hasActiveTrip = false,
 }: EmergencyScreenProps) => {
@@ -87,10 +110,15 @@ const EmergencyScreen = ({
     event.preventDefault();
 
     const name = contactName.trim();
-    const phone = contactPhone.trim();
+    const phone = normalizePhoneNumber(contactPhone);
 
     if (!name || !phone) {
       setContactError("Enter a name and phone number.");
+      return;
+    }
+
+    if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+      setContactError("Use an international phone number like +919876543210.");
       return;
     }
 
@@ -306,7 +334,7 @@ const EmergencyScreen = ({
                 Emergency Contacts
               </p>
               <p className="text-xs text-muted-foreground">
-                People to notify during SOS
+                People to notify during SOS. Use a number like +919876543210.
               </p>
             </div>
           </div>
@@ -323,6 +351,7 @@ const EmergencyScreen = ({
               onChange={(event) => setContactPhone(event.target.value)}
               placeholder="Phone number"
               inputMode="tel"
+              autoComplete="tel"
               className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
             />
             {contactError && (
@@ -371,6 +400,7 @@ const EmergencyScreen = ({
           </div>
         </div>
       </div>
+      <BottomNav active="emergency" onNavigate={onNavigate} />
     </motion.div>
   );
 };

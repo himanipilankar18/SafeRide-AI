@@ -27,7 +27,9 @@ type Screen =
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
   const [role, setRole] = useState<"driver" | "passenger" | null>(null);
-  const [driverCredential, setDriverCredential] = useState<string>(() => localStorage.getItem("phoneNumber") || "driver-demo");
+  const [driverCredential, setDriverCredential] = useState<string>(
+    () => localStorage.getItem("phoneNumber") || "driver-demo",
+  );
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
   const [tripConfig, setTripConfig] = useState<TripConfig>({
     sourceLabel: "MG Road, Bangalore",
@@ -38,6 +40,7 @@ const Index = () => {
     sampleIntervalSec: 5,
     driverName: "SafeRide Driver",
     driverPhone: "+91 demo-driver",
+    driverVehicleDetails: "White Swift KA-01-AB-1234",
   });
 
   const handleBack = () => {
@@ -140,12 +143,18 @@ const Index = () => {
           <EmergencyScreen
             key="emergency"
             onBack={() => setScreen("monitoring")}
+            onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={tripConfig}
             hasActiveTrip={hasActiveTrip}
           />
         );
       case "summary":
-        return <TripSummaryScreen key="summary" />;
+        return (
+          <TripSummaryScreen
+            key="summary"
+            onNavigate={(s) => setScreen(s as Screen)}
+          />
+        );
     }
   };
 

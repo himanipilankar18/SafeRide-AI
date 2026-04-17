@@ -9,16 +9,23 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 const useMockProvider = otpProvider === "mock";
 const hasTwilioConfig = Boolean(accountSid && authToken && twilioPhoneNumber);
+const isProbablyTwilioNumber = (value) => {
+  const normalized = String(value || "").trim();
+  return /^\+[1-9]\d{7,14}$/.test(normalized);
+};
 
 if (useMockProvider) {
   console.warn("⚠️ OTP_PROVIDER=mock. Using mock OTP mode for testing.");
 } else if (otpProvider === "verify") {
   console.log("ℹ️ OTP_PROVIDER=verify. Twilio Verify flow enabled.");
 } else if (!hasTwilioConfig) {
-  console.warn("⚠️ Twilio credentials not configured. Using mock mode for testing.");
+  console.warn(
+    "⚠️ Twilio credentials not configured. Using mock mode for testing.",
+  );
 }
 
-const client = !useMockProvider && hasTwilioConfig ? twilio(accountSid, authToken) : null;
+const client =
+  !useMockProvider && hasTwilioConfig ? twilio(accountSid, authToken) : null;
 
 /**
  * Send OTP via SMS using Twilio
@@ -52,6 +59,14 @@ export const sendSms = async (phoneNumber, body) => {
     if (!client) {
       console.log(`[MOCK] Would send SMS to ${phoneNumber}: ${body}`);
       return { success: true, sid: "mock-message" };
+    }
+
+    if (!isProbablyTwilioNumber(twilioPhoneNumber)) {
+      return {
+        success: false,
+        error:
+          "TWILIO_PHONE_NUMBER must be a Twilio-owned SMS-capable number in E.164 format, for example +14155552671.",
+      };
     }
 
     const message = await client.messages.create({

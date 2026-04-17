@@ -7,7 +7,14 @@ import PlaceSearchField from "@/components/PlaceSearchField";
 import { geocodePlace, PlaceSuggestion } from "@/lib/placeSearch";
 import { LatLng } from "@/lib/navigationSafety";
 import L from "leaflet";
-import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import {
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 
 const screenTransition = {
   duration: 0.58,
@@ -23,6 +30,7 @@ export interface TripConfig {
   sampleIntervalSec: number;
   driverName?: string;
   driverPhone?: string;
+  driverVehicleDetails?: string;
 }
 
 interface HomeScreenProps {
@@ -33,8 +41,10 @@ interface HomeScreenProps {
 const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
   const [sourceQuery, setSourceQuery] = useState("");
   const [destinationQuery, setDestinationQuery] = useState("");
-  const [sourceSelection, setSourceSelection] = useState<PlaceSuggestion | null>(null);
-  const [destinationSelection, setDestinationSelection] = useState<PlaceSuggestion | null>(null);
+  const [sourceSelection, setSourceSelection] =
+    useState<PlaceSuggestion | null>(null);
+  const [destinationSelection, setDestinationSelection] =
+    useState<PlaceSuggestion | null>(null);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
   const [heading, setHeading] = useState<number | null>(null);
   const [shouldFollowMap, setShouldFollowMap] = useState(true);
@@ -42,7 +52,10 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
   const [tripError, setTripError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
-  const defaultCenter = useMemo<LatLng>(() => ({ lat: 12.9716, lng: 77.5946 }), []);
+  const defaultCenter = useMemo<LatLng>(
+    () => ({ lat: 12.9716, lng: 77.5946 }),
+    [],
+  );
 
   const sourceMarkerIcon = useMemo(
     () =>
@@ -88,7 +101,7 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
       ? { lat: destinationSelection.lat, lng: destinationSelection.lng }
       : currentLocation
         ? currentLocation
-      : defaultCenter;
+        : defaultCenter;
 
   const SelectionFocus = ({
     center,
@@ -126,7 +139,10 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
         };
 
         setCurrentLocation(livePoint);
-        if (typeof position.coords.heading === "number" && Number.isFinite(position.coords.heading)) {
+        if (
+          typeof position.coords.heading === "number" &&
+          Number.isFinite(position.coords.heading)
+        ) {
           setHeading(position.coords.heading);
         }
       },
@@ -165,10 +181,15 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
     };
 
     window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
+    return () =>
+      window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
-  const resolveOrThrow = async (query: string, label: string, selected: PlaceSuggestion | null) => {
+  const resolveOrThrow = async (
+    query: string,
+    label: string,
+    selected: PlaceSuggestion | null,
+  ) => {
     const trimmed = query.trim();
     if (!trimmed) {
       throw new Error(`Please enter a ${label} location.`);
@@ -180,7 +201,9 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
 
     const place = await geocodePlace(trimmed);
     if (!place) {
-      throw new Error(`Could not find ${label}. Try a more specific place name.`);
+      throw new Error(
+        `Could not find ${label}. Try a more specific place name.`,
+      );
     }
 
     return place;
@@ -205,9 +228,14 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
         sampleIntervalSec: 5,
         driverName: "SafeRide Driver",
         driverPhone: "+91 demo-driver",
+        driverVehicleDetails: "White Swift KA-01-AB-1234",
       });
     } catch (error) {
-      setTripError(error instanceof Error ? error.message : "Unable to resolve the entered places.");
+      setTripError(
+        error instanceof Error
+          ? error.message
+          : "Unable to resolve the entered places.",
+      );
     } finally {
       setIsResolvingTrip(false);
     }
@@ -231,15 +259,26 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; OpenStreetMap contributors'
+            attribution="&copy; OpenStreetMap contributors"
           />
 
-          {sourceSelection && <Marker position={[sourceSelection.lat, sourceSelection.lng]} icon={sourceMarkerIcon} />}
+          {sourceSelection && (
+            <Marker
+              position={[sourceSelection.lat, sourceSelection.lng]}
+              icon={sourceMarkerIcon}
+            />
+          )}
           {destinationSelection && (
-            <Marker position={[destinationSelection.lat, destinationSelection.lng]} icon={destinationMarkerIcon} />
+            <Marker
+              position={[destinationSelection.lat, destinationSelection.lng]}
+              icon={destinationMarkerIcon}
+            />
           )}
           {currentLocation && (
-            <Marker position={[currentLocation.lat, currentLocation.lng]} icon={currentLocationIcon} />
+            <Marker
+              position={[currentLocation.lat, currentLocation.lng]}
+              icon={currentLocationIcon}
+            />
           )}
 
           {sourceSelection && destinationSelection && (
@@ -299,7 +338,9 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
           />
           {tripError && (
             <div className="rounded-2xl border border-destructive/30 bg-destructive/15 px-4 py-3">
-              <p className="text-xs font-semibold text-destructive">Could not start trip</p>
+              <p className="text-xs font-semibold text-destructive">
+                Could not start trip
+              </p>
               <p className="text-xs text-white mt-1">{tripError}</p>
             </div>
           )}

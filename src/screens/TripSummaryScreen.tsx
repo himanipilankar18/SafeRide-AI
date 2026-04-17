@@ -1,9 +1,12 @@
 import { motion } from "framer-motion";
 import { Shield, Clock, MapPin, Route, CheckCircle } from "lucide-react";
+import BottomNav from "@/components/BottomNav";
 
-interface TripSummaryScreenProps {}
+interface TripSummaryScreenProps {
+  onNavigate: (screen: string) => void;
+}
 
-const TripSummaryScreen = (_props: TripSummaryScreenProps) => {
+const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -108,6 +111,7 @@ const TripSummaryScreen = (_props: TripSummaryScreenProps) => {
           ))}
         </motion.div>
       </div>
+      <BottomNav active="summary" onNavigate={onNavigate} />
     </motion.div>
   );
 };
