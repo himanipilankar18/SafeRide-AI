@@ -21,7 +21,9 @@ describe("passenger trip flow", () => {
   it("starts ride with required sampling and tolerance config", async () => {
     const onStartRide = vi.fn();
 
-    render(<HomeScreen onStartRide={onStartRide} onNavigate={() => undefined} />);
+    render(
+      <HomeScreen onStartRide={onStartRide} onNavigate={() => undefined} />,
+    );
 
     fireEvent.change(screen.getByPlaceholderText("Enter pickup location"), {
       target: { value: "MG Road, Bangalore" },
@@ -57,7 +59,6 @@ describe("passenger trip flow", () => {
     );
 
     expect(screen.getByText("Ride Mode Active")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "3d" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "2d" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "offline" })).toBeInTheDocument();
 
@@ -80,7 +81,11 @@ describe("passenger trip flow", () => {
     );
 
     expect(screen.getByText("No ride active")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Join a Ride" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous Rides" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Join a Ride" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Previous Rides" }),
+    ).toBeInTheDocument();
   });
 });

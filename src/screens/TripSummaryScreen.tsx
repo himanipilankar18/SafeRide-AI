@@ -1,12 +1,9 @@
 import { motion } from "framer-motion";
 import { Shield, Clock, MapPin, Route, CheckCircle } from "lucide-react";
-import BottomNav from "@/components/BottomNav";
 
-interface TripSummaryScreenProps {
-  onNavigate: (screen: string) => void;
-}
+interface TripSummaryScreenProps {}
 
-const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
+const TripSummaryScreen = (_props: TripSummaryScreenProps) => {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -31,7 +28,9 @@ const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
           </div>
           <div>
             <p className="font-bold text-foreground">Trip Completed Safely</p>
-            <p className="text-xs text-muted-foreground">No safety incidents reported</p>
+            <p className="text-xs text-muted-foreground">
+              No safety incidents reported
+            </p>
           </div>
         </motion.div>
 
@@ -42,20 +41,26 @@ const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
           transition={{ delay: 0.1 }}
           className="bg-card rounded-2xl p-5 border border-border space-y-4"
         >
-          <p className="text-sm font-semibold text-muted-foreground">Ride Details</p>
+          <p className="text-sm font-semibold text-muted-foreground">
+            Ride Details
+          </p>
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <MapPin size={18} className="text-primary" />
               <div>
                 <p className="text-xs text-muted-foreground">Pickup</p>
-                <p className="text-sm font-semibold text-foreground">MG Road, Bangalore</p>
+                <p className="text-sm font-semibold text-foreground">
+                  MG Road, Bangalore
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <MapPin size={18} className="text-destructive" />
               <div>
                 <p className="text-xs text-muted-foreground">Drop-off</p>
-                <p className="text-sm font-semibold text-foreground">Indiranagar, Bangalore</p>
+                <p className="text-sm font-semibold text-foreground">
+                  Indiranagar, Bangalore
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -69,7 +74,9 @@ const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
               <Clock size={18} className="text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Duration</p>
-                <p className="text-sm font-semibold text-foreground">24 minutes</p>
+                <p className="text-sm font-semibold text-foreground">
+                  24 minutes
+                </p>
               </div>
             </div>
           </div>
@@ -82,7 +89,9 @@ const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
           transition={{ delay: 0.2 }}
           className="bg-card rounded-2xl p-5 border border-border space-y-3"
         >
-          <p className="text-sm font-semibold text-muted-foreground">Safety Log</p>
+          <p className="text-sm font-semibold text-muted-foreground">
+            Safety Log
+          </p>
           {[
             { time: "10:02", text: "Ride started", icon: Shield },
             { time: "10:08", text: "Route verified", icon: CheckCircle },
@@ -90,15 +99,15 @@ const TripSummaryScreen = ({ onNavigate }: TripSummaryScreenProps) => {
             { time: "10:26", text: "Ride completed safely", icon: Shield },
           ].map((event, i) => (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-[10px] font-mono text-muted-foreground w-10">{event.time}</span>
+              <span className="text-[10px] font-mono text-muted-foreground w-10">
+                {event.time}
+              </span>
               <event.icon size={14} className="text-safe" />
               <span className="text-sm text-foreground">{event.text}</span>
             </div>
           ))}
         </motion.div>
       </div>
-
-      <BottomNav active="summary" onNavigate={onNavigate} />
     </motion.div>
   );
 };

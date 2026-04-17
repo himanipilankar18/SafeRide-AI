@@ -1,13 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Clock, LocateFixed, Phone, Users, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock,
+  LocateFixed,
+  Phone,
+  Users,
+  X,
+} from "lucide-react";
 import { LatLng, haversineKm } from "@/lib/navigationSafety";
 import { TripConfig } from "@/screens/HomeScreen";
 import { useLiveTracking } from "@/lib/useLiveTracking";
 import L from "leaflet";
-import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import {
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
+import BottomNav from "@/components/BottomNav";
 
-type MapMode = "3d" | "2d" | "offline";
+type MapMode = "2d" | "offline";
 
 const screenTransition = {
   duration: 0.66,
@@ -49,7 +64,10 @@ const makeVehicleIcon = (heading: number | null) =>
     iconAnchor: [19, 19],
   });
 
-const fetchRoadRoute = async (from: LatLng, to: LatLng): Promise<[number, number][]> => {
+const fetchRoadRoute = async (
+  from: LatLng,
+  to: LatLng,
+): Promise<[number, number][]> => {
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
     const response = await fetch(url);
@@ -63,7 +81,9 @@ const fetchRoadRoute = async (from: LatLng, to: LatLng): Promise<[number, number
       return [];
     }
 
-    return coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number]);
+    return coordinates.map(
+      (coord: [number, number]) => [coord[1], coord[0]] as [number, number],
+    );
   } catch {
     return [];
   }
@@ -86,7 +106,10 @@ const FollowLocation = ({
 
   useEffect(() => {
     if (enabled) {
-      map.setView([position.lat, position.lng], map.getZoom(), { animate: true, duration: 0.6 });
+      map.setView([position.lat, position.lng], map.getZoom(), {
+        animate: true,
+        duration: 0.6,
+      });
     }
   }, [enabled, map, position.lat, position.lng]);
 
@@ -106,11 +129,17 @@ const OfflineMap = () => (
   </div>
 );
 
-const EmptyRideState = ({ onNavigate }: { onNavigate: (screen: string) => void }) => (
-  <div className="absolute inset-x-5 bottom-7 z-30 rounded-3xl bg-white px-5 py-5 text-gray-950 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]">
+const EmptyRideState = ({
+  onNavigate,
+}: {
+  onNavigate: (screen: string) => void;
+}) => (
+  <div className="absolute inset-x-5 bottom-24 z-30 rounded-3xl bg-white px-5 py-5 text-gray-950 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]">
     <div className="mx-auto mb-4 h-1 w-9 rounded-full bg-gray-300" />
     <p className="text-xl font-extrabold">No ride active</p>
-    <p className="mt-1 text-sm font-medium text-gray-500">Start from a route, join a ride, or pick up where you left off.</p>
+    <p className="mt-1 text-sm font-medium text-gray-500">
+      Start from a route, join a ride, or pick up where you left off.
+    </p>
     <div className="mt-5 grid grid-cols-2 gap-3">
       <button
         type="button"
@@ -145,10 +174,14 @@ const MonitoringScreen = ({
   onTripChange,
   hasActiveTrip = true,
 }: MonitoringScreenProps) => {
-  const [currentLocation, setCurrentLocation] = useState<LatLng>(tripConfig.source);
-  const [routePath, setRoutePath] = useState<[number, number][]>([[tripConfig.source.lat, tripConfig.source.lng]]);
+  const [currentLocation, setCurrentLocation] = useState<LatLng>(
+    tripConfig.source,
+  );
+  const [routePath, setRoutePath] = useState<[number, number][]>([
+    [tripConfig.source.lat, tripConfig.source.lng],
+  ]);
   const [expectedRoute, setExpectedRoute] = useState<[number, number][]>([]);
-  const [mode, setMode] = useState<MapMode>("3d");
+  const [mode, setMode] = useState<MapMode>("2d");
   const [heading, setHeading] = useState<number | null>(null);
   const [followVehicle, setFollowVehicle] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -205,10 +238,17 @@ const MonitoringScreen = ({
         };
 
         setCurrentLocation(livePoint);
-        setRoutePath((prev) => [...prev, [livePoint.lat, livePoint.lng]].slice(-500));
+        setRoutePath((prev) =>
+          [...prev, [livePoint.lat, livePoint.lng] as [number, number]].slice(
+            -500,
+          ),
+        );
         setLocationError(null);
 
-        if (typeof position.coords.heading === "number" && Number.isFinite(position.coords.heading)) {
+        if (
+          typeof position.coords.heading === "number" &&
+          Number.isFinite(position.coords.heading)
+        ) {
           setHeading(position.coords.heading);
         }
 
@@ -253,21 +293,24 @@ const MonitoringScreen = ({
     };
 
     window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
+    return () =>
+      window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
   const vehicleIcon = useMemo(() => makeVehicleIcon(heading), [heading]);
-  const distanceToDestination = haversineKm(currentLocation, tripConfig.destination);
+  const distanceToDestination = haversineKm(
+    currentLocation,
+    tripConfig.destination,
+  );
   const etaMinutes = Math.max(1, Math.round(distanceToDestination * 3.2));
-  const routeLine = expectedRoute.length > 0 ? expectedRoute : [[tripConfig.source.lat, tripConfig.source.lng], [tripConfig.destination.lat, tripConfig.destination.lng]];
-  const mapTiltStyle =
-    mode === "3d"
-      ? {
-          transform: "perspective(720px) rotateX(56deg) scale(1.45)",
-          transformOrigin: "50% 72%",
-        }
-      : undefined;
-
+  const routeLine = (
+    expectedRoute.length > 0
+      ? expectedRoute
+      : [
+          [tripConfig.source.lat, tripConfig.source.lng],
+          [tripConfig.destination.lat, tripConfig.destination.lng],
+        ]
+  ) as [number, number][];
   const handleUseCurrentAsSource = () => {
     onTripChange({
       ...tripConfig,
@@ -290,23 +333,41 @@ const MonitoringScreen = ({
           <OfflineMap />
         ) : (
           <div className="absolute inset-0 z-0 overflow-hidden">
-            <div className="absolute inset-0 z-0 transition-transform duration-700 ease-out" style={mapTiltStyle}>
+            <div className="absolute inset-0 z-0 transition-transform duration-700 ease-out">
               <MapContainer
                 center={[currentLocation.lat, currentLocation.lng]}
-                zoom={mode === "3d" ? 17 : 15}
+                zoom={15}
                 className="h-full w-full"
                 style={{ zIndex: 0 }}
                 zoomControl={false}
               >
                 <TileLayer
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='&copy; OpenStreetMap contributors'
+                  attribution="&copy; OpenStreetMap contributors"
                 />
-                <Polyline positions={routeLine} pathOptions={{ color: "#2563eb", weight: 8, opacity: 0.35 }} />
-                <Polyline positions={routePath} pathOptions={{ color: "#2563eb", weight: 6, opacity: 0.95 }} />
-                <Marker position={[tripConfig.source.lat, tripConfig.source.lng]} icon={sourcePinIcon} />
-                <Marker position={[tripConfig.destination.lat, tripConfig.destination.lng]} icon={destinationPinIcon} />
-                <Marker position={[currentLocation.lat, currentLocation.lng]} icon={vehicleIcon} />
+                <Polyline
+                  positions={routeLine}
+                  pathOptions={{ color: "#2563eb", weight: 8, opacity: 0.35 }}
+                />
+                <Polyline
+                  positions={routePath}
+                  pathOptions={{ color: "#2563eb", weight: 6, opacity: 0.95 }}
+                />
+                <Marker
+                  position={[tripConfig.source.lat, tripConfig.source.lng]}
+                  icon={sourcePinIcon}
+                />
+                <Marker
+                  position={[
+                    tripConfig.destination.lat,
+                    tripConfig.destination.lng,
+                  ]}
+                  icon={destinationPinIcon}
+                />
+                <Marker
+                  position={[currentLocation.lat, currentLocation.lng]}
+                  icon={vehicleIcon}
+                />
                 <FollowLocation
                   position={currentLocation}
                   enabled={followVehicle}
@@ -321,25 +382,33 @@ const MonitoringScreen = ({
       {hasActiveTrip ? (
         <div className="absolute left-4 right-4 top-5 z-[1000]">
           <div className="rounded-2xl bg-black/65 px-4 py-3 text-white shadow-xl backdrop-blur-md border border-white/20">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">Ride Mode Active</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">
+              Ride Mode Active
+            </p>
             <div className="mt-1 flex items-center justify-between gap-3">
-              <p className="truncate text-sm font-bold">{tripConfig.sourceLabel}</p>
+              <p className="truncate text-sm font-bold">
+                {tripConfig.sourceLabel}
+              </p>
               <div className="h-px flex-1 bg-white/25" />
-              <p className="truncate text-sm font-bold text-right">{tripConfig.destinationLabel}</p>
+              <p className="truncate text-sm font-bold text-right">
+                {tripConfig.destinationLabel}
+              </p>
             </div>
           </div>
         </div>
       ) : (
         <div className="absolute left-4 right-4 top-5 z-[1000]">
           <div className="rounded-2xl bg-black/65 px-4 py-3 text-white shadow-xl backdrop-blur-md border border-white/20">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">Ride</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">
+              Ride
+            </p>
             <p className="mt-1 text-sm font-bold">Choose how to continue</p>
           </div>
         </div>
       )}
 
       <div className="absolute left-4 top-36 z-[1000] flex rounded-full bg-white/95 p-1 shadow-xl">
-        {(["3d", "2d", "offline"] as MapMode[]).map((item) => (
+        {(["2d", "offline"] as MapMode[]).map((item) => (
           <button
             key={item}
             type="button"
@@ -353,19 +422,21 @@ const MonitoringScreen = ({
         ))}
       </div>
 
-      {hasActiveTrip && <div className="absolute right-4 top-36 z-[1000] flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            setFollowVehicle(true);
-            handleUseCurrentAsSource();
-          }}
-          className="grid h-12 w-12 place-items-center rounded-full bg-white text-gray-900 shadow-xl"
-          aria-label="Recenter"
-        >
-          <LocateFixed size={22} />
-        </button>
-      </div>}
+      {hasActiveTrip && (
+        <div className="absolute right-4 top-36 z-[1000] flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setFollowVehicle(true);
+              handleUseCurrentAsSource();
+            }}
+            className="grid h-12 w-12 place-items-center rounded-full bg-white text-gray-900 shadow-xl"
+            aria-label="Recenter"
+          >
+            <LocateFixed size={22} />
+          </button>
+        </div>
+      )}
 
       {hasActiveTrip && locationError && (
         <div className="absolute left-4 right-4 top-52 z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
@@ -377,32 +448,40 @@ const MonitoringScreen = ({
       {!hasActiveTrip ? (
         <EmptyRideState onNavigate={onNavigate} />
       ) : (
-      <div className="absolute inset-x-0 bottom-0 z-[1100] rounded-t-3xl bg-white px-5 pb-5 pt-4 text-gray-950 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]">
-        <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-gray-300" />
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => onNavigate("home")}
-            className="grid h-11 w-11 place-items-center rounded-full border border-gray-200 text-gray-700"
-            aria-label="Close ride"
-          >
-            <X size={24} />
-          </button>
-          <div className="text-center">
-            <p className="text-3xl font-extrabold text-[#08783c]">{etaMinutes} min</p>
-            <p className="text-sm font-semibold text-gray-500">{distanceToDestination.toFixed(1)} km</p>
+        <div className="absolute inset-x-0 bottom-0 z-[1100] rounded-t-3xl bg-white px-5 pb-24 pt-4 text-gray-950 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]">
+          <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-gray-300" />
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => onNavigate("home")}
+              className="grid h-11 w-11 place-items-center rounded-full border border-gray-200 text-gray-700"
+              aria-label="Close ride"
+            >
+              <X size={24} />
+            </button>
+            <div className="text-center">
+              <p className="text-3xl font-extrabold text-[#08783c]">
+                {etaMinutes} min
+              </p>
+              <p className="text-sm font-semibold text-gray-500">
+                {distanceToDestination.toFixed(1)} km
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onEmergency}
+              className="grid h-11 w-11 place-items-center rounded-full bg-red-600 text-white shadow-lg"
+              aria-label="Emergency"
+            >
+              <Phone size={21} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onEmergency}
-            className="grid h-11 w-11 place-items-center rounded-full bg-red-600 text-white shadow-lg"
-            aria-label="Emergency"
-          >
-            <Phone size={21} />
-          </button>
         </div>
-      </div>
       )}
+
+      <div className="absolute inset-x-0 bottom-0 z-[1200]">
+        <BottomNav active="monitoring" onNavigate={onNavigate} />
+      </div>
     </motion.div>
   );
 };

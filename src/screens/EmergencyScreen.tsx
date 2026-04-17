@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { MapPin, Phone, Share2, Trash2, UserPlus } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import BottomNav from "@/components/BottomNav";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
 
@@ -9,7 +8,6 @@ const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
 
 interface EmergencyScreenProps {
   onBack: () => void;
-  onNavigate: (screen: string) => void;
   tripConfig: TripConfig;
   hasActiveTrip?: boolean;
 }
@@ -20,16 +18,23 @@ type EmergencyContact = {
   phone: string;
 };
 
-const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false }: EmergencyScreenProps) => {
+const EmergencyScreen = ({
+  onBack,
+  tripConfig,
+  hasActiveTrip = false,
+}: EmergencyScreenProps) => {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactError, setContactError] = useState<string | null>(null);
   const [alertStatus, setAlertStatus] = useState<string | null>(null);
-  const [alertStatusType, setAlertStatusType] = useState<"success" | "error" | "info">("info");
+  const [alertStatusType, setAlertStatusType] = useState<
+    "success" | "error" | "info"
+  >("info");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
   useEffect(() => {
     try {
@@ -69,7 +74,10 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
   const saveContacts = (nextContacts: EmergencyContact[]) => {
     setContacts(nextContacts);
     try {
-      window.localStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(nextContacts));
+      window.localStorage.setItem(
+        EMERGENCY_CONTACTS_KEY,
+        JSON.stringify(nextContacts),
+      );
     } catch {
       // Storage can fail in private browsing; keep contacts for the current session.
     }
@@ -115,9 +123,12 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
     setAlertStatusType("info");
 
     try {
-      const passengerPhone = window.localStorage.getItem("phoneNumber") || "passenger-demo";
+      const passengerPhone =
+        window.localStorage.getItem("phoneNumber") || "passenger-demo";
       const location = currentLocation ?? tripConfig.source;
-      const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      const timestamp = new Date().toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+      });
 
       const response = await fetch(`${API_BASE_URL}/emergency/alert`, {
         method: "POST",
@@ -155,7 +166,11 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
       setAlertStatus(data.message || "Emergency alerts sent.");
       setAlertStatusType("success");
     } catch (error) {
-      setAlertStatus(error instanceof Error ? error.message : "Failed to send emergency alerts.");
+      setAlertStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to send emergency alerts.",
+      );
       setAlertStatusType("error");
     } finally {
       setIsSendingAlert(false);
@@ -202,7 +217,8 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
         </div>
 
         <p className="text-sm text-muted-foreground text-center mb-8">
-          Press the SOS button to alert emergency services and your trusted contacts
+          Press the SOS button to alert emergency services and your trusted
+          contacts
         </p>
 
         {alertStatus && (
@@ -232,7 +248,9 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
             </div>
             <div className="text-left">
               <p className="font-semibold text-sm text-foreground">Call Help</p>
-              <p className="text-xs text-muted-foreground">Contact emergency services</p>
+              <p className="text-xs text-muted-foreground">
+                Contact emergency services
+              </p>
             </div>
           </motion.button>
 
@@ -246,8 +264,12 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
               <MapPin size={20} className="text-primary" />
             </div>
             <div className="text-left">
-              <p className="font-semibold text-sm text-foreground">Share Location</p>
-              <p className="text-xs text-muted-foreground">Send live location to contacts</p>
+              <p className="font-semibold text-sm text-foreground">
+                Share Location
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Send live location to contacts
+              </p>
             </div>
           </motion.button>
 
@@ -263,8 +285,12 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
               <Share2 size={20} className="text-warning" />
             </div>
             <div className="text-left">
-              <p className="font-semibold text-sm text-foreground">Alert Contacts</p>
-              <p className="text-xs text-muted-foreground">Notify your trusted circle</p>
+              <p className="font-semibold text-sm text-foreground">
+                Alert Contacts
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Notify your trusted circle
+              </p>
             </div>
           </motion.button>
         </div>
@@ -276,8 +302,12 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
               <UserPlus size={19} className="text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Emergency Contacts</p>
-              <p className="text-xs text-muted-foreground">People to notify during SOS</p>
+              <p className="text-sm font-semibold text-foreground">
+                Emergency Contacts
+              </p>
+              <p className="text-xs text-muted-foreground">
+                People to notify during SOS
+              </p>
             </div>
           </div>
 
@@ -295,7 +325,11 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
               inputMode="tel"
               className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
             />
-            {contactError && <p className="text-xs font-semibold text-destructive">{contactError}</p>}
+            {contactError && (
+              <p className="text-xs font-semibold text-destructive">
+                {contactError}
+              </p>
+            )}
             <button
               type="submit"
               className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground transition-transform active:scale-[0.98]"
@@ -316,8 +350,12 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
                   className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3"
                 >
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-foreground">{contact.name}</p>
-                    <p className="text-xs text-muted-foreground">{contact.phone}</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {contact.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {contact.phone}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -333,8 +371,6 @@ const EmergencyScreen = ({ onBack, onNavigate, tripConfig, hasActiveTrip = false
           </div>
         </div>
       </div>
-
-      <BottomNav active="emergency" onNavigate={onNavigate} />
     </motion.div>
   );
 };

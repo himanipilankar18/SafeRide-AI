@@ -1,13 +1,13 @@
 import { motion } from "framer-motion";
 import { Shield, AlertTriangle, Eye, Gauge, Phone, Timer } from "lucide-react";
-import BottomNav from "@/components/BottomNav";
 
 interface DriverMonitoringScreenProps {
   onEmergency: () => void;
-  onNavigate: (screen: string) => void;
 }
 
-const DriverMonitoringScreen = ({ onEmergency, onNavigate }: DriverMonitoringScreenProps) => {
+const DriverMonitoringScreen = ({
+  onEmergency,
+}: DriverMonitoringScreenProps) => {
   const safetyScore = 92;
 
   return (
@@ -19,7 +19,9 @@ const DriverMonitoringScreen = ({ onEmergency, onNavigate }: DriverMonitoringScr
     >
       <div className="px-6 pt-2 pb-4">
         <h2 className="text-lg font-bold text-foreground">Driver Dashboard</h2>
-        <p className="text-xs text-muted-foreground">AI monitoring your driving</p>
+        <p className="text-xs text-muted-foreground">
+          AI monitoring your driving
+        </p>
       </div>
 
       <div className="flex-1 px-6 space-y-4 overflow-y-auto pb-28">
@@ -31,18 +33,34 @@ const DriverMonitoringScreen = ({ onEmergency, onNavigate }: DriverMonitoringScr
         >
           <div className="relative w-28 h-28 mb-3">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="hsl(var(--accent))" strokeWidth="8" />
+              <circle
+                cx="50"
+                cy="50"
+                r="42"
+                fill="none"
+                stroke="hsl(var(--accent))"
+                strokeWidth="8"
+              />
               <motion.circle
-                cx="50" cy="50" r="42" fill="none"
-                stroke="hsl(var(--safe))" strokeWidth="8" strokeLinecap="round"
+                cx="50"
+                cy="50"
+                r="42"
+                fill="none"
+                stroke="hsl(var(--safe))"
+                strokeWidth="8"
+                strokeLinecap="round"
                 strokeDasharray={`${2 * Math.PI * 42}`}
                 initial={{ strokeDashoffset: 2 * Math.PI * 42 }}
-                animate={{ strokeDashoffset: 2 * Math.PI * 42 * (1 - safetyScore / 100) }}
+                animate={{
+                  strokeDashoffset: 2 * Math.PI * 42 * (1 - safetyScore / 100),
+                }}
                 transition={{ duration: 1.5, delay: 0.3 }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-extrabold text-foreground">{safetyScore}</span>
+              <span className="text-3xl font-extrabold text-foreground">
+                {safetyScore}
+              </span>
               <span className="text-[10px] text-muted-foreground">Safety</span>
             </div>
           </div>
@@ -100,14 +118,20 @@ const DriverMonitoringScreen = ({ onEmergency, onNavigate }: DriverMonitoringScr
           transition={{ delay: 0.35 }}
           className="bg-card rounded-2xl p-5 border border-border space-y-3"
         >
-          <p className="text-sm font-semibold text-muted-foreground">AI Insights</p>
+          <p className="text-sm font-semibold text-muted-foreground">
+            AI Insights
+          </p>
           <div className="flex items-center gap-3 bg-safe/10 rounded-xl p-3">
             <Shield size={16} className="text-safe" />
-            <span className="text-sm text-foreground">Smooth braking detected</span>
+            <span className="text-sm text-foreground">
+              Smooth braking detected
+            </span>
           </div>
           <div className="flex items-center gap-3 bg-safe/10 rounded-xl p-3">
             <Shield size={16} className="text-safe" />
-            <span className="text-sm text-foreground">Lane discipline maintained</span>
+            <span className="text-sm text-foreground">
+              Lane discipline maintained
+            </span>
           </div>
         </motion.div>
 
@@ -122,8 +146,6 @@ const DriverMonitoringScreen = ({ onEmergency, onNavigate }: DriverMonitoringScr
           Emergency
         </motion.button>
       </div>
-
-      <BottomNav active="monitoring" onNavigate={onNavigate} />
     </motion.div>
   );
 };

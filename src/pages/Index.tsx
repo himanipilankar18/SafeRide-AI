@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
+import BottomNav from "@/components/BottomNav";
 import PhoneFrame from "@/components/PhoneFrame";
 import RoleSelectScreen from "@/screens/RoleSelectScreen";
 import OnboardingScreen from "@/screens/OnboardingScreen";
@@ -12,7 +13,14 @@ import DriverHomeScreen from "@/screens/DriverHomeScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import { TripConfig } from "@/screens/HomeScreen";
 
-type Screen = "onboarding" | "role" | "login" | "home" | "monitoring" | "emergency" | "summary";
+type Screen =
+  | "onboarding"
+  | "role"
+  | "login"
+  | "home"
+  | "monitoring"
+  | "emergency"
+  | "summary";
 
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
@@ -62,17 +70,24 @@ const Index = () => {
   const renderScreen = () => {
     switch (screen) {
       case "onboarding":
-        return <OnboardingScreen key="onboarding" onNext={() => setScreen("role")} />;
+        return (
+          <OnboardingScreen key="onboarding" onNext={() => setScreen("role")} />
+        );
       case "role":
         return <RoleSelectScreen key="role" onSelect={handleRoleSelect} />;
       case "login":
-        return <LoginScreen key="login" userType={role ?? "passenger"} onLogin={() => setScreen("home")} />;
+        return (
+          <LoginScreen
+            key="login"
+            userType={role ?? "passenger"}
+            onLogin={() => setScreen("home")}
+          />
+        );
       case "home":
         return role === "driver" ? (
           <DriverHomeScreen
             key="driver-home"
             onGoOnline={() => setScreen("monitoring")}
-            onNavigate={(s) => setScreen(s as Screen)}
           />
         ) : (
           <HomeScreen
@@ -90,7 +105,6 @@ const Index = () => {
           <DriverMonitoringScreen
             key="driver-monitoring"
             onEmergency={() => setScreen("emergency")}
-            onNavigate={(s) => setScreen(s as Screen)}
           />
         ) : (
           <MonitoringScreen
@@ -107,21 +121,32 @@ const Index = () => {
           <EmergencyScreen
             key="emergency"
             onBack={() => setScreen("monitoring")}
-            onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={tripConfig}
             hasActiveTrip={hasActiveTrip}
           />
         );
       case "summary":
-        return <TripSummaryScreen key="summary" onNavigate={(s) => setScreen(s as Screen)} />;
+        return <TripSummaryScreen key="summary" />;
     }
   };
 
   return (
     <PhoneFrame showBack={screen !== "onboarding"} onBack={handleBack}>
-      <AnimatePresence mode="wait" initial={false}>
-        {renderScreen()}
-      </AnimatePresence>
+      <div className="relative h-full">
+        <AnimatePresence mode="wait" initial={false}>
+          {renderScreen()}
+        </AnimatePresence>
+
+        {role === "driver" &&
+          ["home", "monitoring", "emergency", "summary"].includes(screen) && (
+            <div className="absolute inset-x-0 bottom-0 z-[2000]">
+              <BottomNav
+                active={screen}
+                onNavigate={(nextScreen) => setScreen(nextScreen as Screen)}
+              />
+            </div>
+          )}
+      </div>
     </PhoneFrame>
   );
 };
