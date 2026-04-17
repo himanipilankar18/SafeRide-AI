@@ -5,6 +5,9 @@ node_modules/
 dist/
 build/
 
+# Local databases
+*.db
+
 # Coverage and test artifacts
 coverage/
 .nyc_output/
