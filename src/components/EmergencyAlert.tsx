@@ -220,7 +220,7 @@ const EmergencyAlert = ({
         </div>
 
         <p className="mt-1 text-xs text-gray-500">
-          Add contacts and press Call Emergency to send SMS alerts.
+          Add contacts and press Send Emergency Alert to dispatch SMS alerts.
         </p>
 
         <form onSubmit={addContact} className="mt-3 grid grid-cols-1 gap-2">
@@ -304,7 +304,7 @@ const EmergencyAlert = ({
           disabled={sending}
           className="mt-4 w-full rounded-xl bg-red-600 px-3 py-3 text-sm font-bold text-white disabled:opacity-60"
         >
-          {sending ? "Sending..." : "Call Emergency"}
+          {sending ? "Sending..." : "Send Emergency Alert"}
         </button>
       </div>
     </div>

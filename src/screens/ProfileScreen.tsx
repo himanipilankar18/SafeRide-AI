@@ -142,7 +142,7 @@ const ProfileScreen = ({ role, phoneNumber, onOpenRegistration }: ProfileScreenP
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="h-full overflow-y-auto px-5 pb-28 pt-10"
+      className="h-full overflow-y-auto px-5 pb-28 pt-14"
     >
       <div className="rounded-3xl border border-border bg-card p-5">
         <h2 className="text-xl font-extrabold text-foreground">Profile</h2>

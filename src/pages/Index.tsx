@@ -10,6 +10,8 @@ import MonitoringScreen from "@/screens/MonitoringScreen";
 import EmergencyScreen from "@/screens/EmergencyScreen";
 import TripSummaryScreen from "../screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
+import DriverFindGarageScreen from "@/screens/DriverFindGarageScreen";
+import DriverFindHospitalScreen from "@/screens/DriverFindHospitalScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
 import DriverRideSetupScreen from "@/screens/DriverRideSetupScreen";
@@ -27,6 +29,8 @@ type Screen =
   | "home"
   | "driverVerify"
   | "driverRideSetup"
+  | "driverFindGarage"
+  | "driverFindHospital"
   | "passengerJoinRide"
   | "passengerRideLive"
   | "profile"
@@ -107,6 +111,12 @@ const Index = () => {
         break;
       case "driverRideSetup":
         setScreen("home");
+        break;
+      case "driverFindGarage":
+        setScreen("home");
+        break;
+      case "driverFindHospital":
+        setScreen("emergency");
         break;
       case "passengerJoinRide":
         setScreen("login");
@@ -220,18 +230,31 @@ const Index = () => {
         );
       case "home":
         return role === "driver" ? (
-          <DriverHomeScreen
-            key="driver-home"
-            onGoOnline={async () => {
-              const phone =
-                localStorage.getItem("phoneNumber") ||
-                driverCredential ||
-                "driver-demo";
-              const done = await checkDriverOnboardingDone(phone);
-              setScreen(done ? "driverRideSetup" : "driverVerify");
-            }}
-            onOpenFindGarage={() => setScreen("monitoring")}
-          />
+          hasActiveTrip && driverJoinedRideTrip ? (
+            <MonitoringScreen
+              key="driver-home-current-ride"
+              onEmergency={() => navigateToEmergency("home")}
+              onNavigate={(s) => setScreen(s as Screen)}
+              tripConfig={driverJoinedRideTrip}
+              onTripChange={setDriverJoinedRideTrip}
+              hasActiveTrip={hasActiveTrip}
+              isDriverMode
+              tripId={activeTripId || undefined}
+            />
+          ) : (
+            <DriverHomeScreen
+              key="driver-home"
+              onGoOnline={async () => {
+                const phone =
+                  localStorage.getItem("phoneNumber") ||
+                  driverCredential ||
+                  "driver-demo";
+                const done = await checkDriverOnboardingDone(phone);
+                setScreen(done ? "driverRideSetup" : "driverVerify");
+              }}
+              onOpenFindGarage={() => setScreen("driverFindGarage")}
+            />
+          )
         ) : (
           <HomeScreen
             key="passenger-home"
@@ -321,6 +344,20 @@ const Index = () => {
             }}
           />
         );
+      case "driverFindGarage":
+        return (
+          <DriverFindGarageScreen
+            key="driver-find-garage"
+            onBackToHome={() => setScreen("home")}
+          />
+        );
+      case "driverFindHospital":
+        return (
+          <DriverFindHospitalScreen
+            key="driver-find-hospital"
+            onBackToEmergency={() => setScreen("emergency")}
+          />
+        );
       case "passengerJoinRide":
         return (
           <PassengerJoinRideScreen
@@ -407,6 +444,11 @@ const Index = () => {
             hasActiveTrip={hasActiveTrip}
             role={role || "passenger"}
             activeTripId={activeTripId}
+            onOpenFindHospital={
+              role === "driver"
+                ? () => setScreen("driverFindHospital")
+                : undefined
+            }
           />
         );
       case "summary":

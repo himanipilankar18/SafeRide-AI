@@ -28,6 +28,7 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
   const [profileSaved, setProfileSaved] = useState(false);
   const [isSavingEmergencyContact, setIsSavingEmergencyContact] = useState(false);
   const [emergencyContactSaved, setEmergencyContactSaved] = useState(false);
+  const [detailsSavedLabel, setDetailsSavedLabel] = useState(false);
 
   const [isOpeningCamera, setIsOpeningCamera] = useState(false);
   const [showInAppCamera, setShowInAppCamera] = useState(false);
@@ -392,6 +393,7 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
               setEmergencyContactName(first.name || "");
               setEmergencyContactPhone(first.phone || "");
               setEmergencyContactSaved(true);
+              setDetailsSavedLabel(Boolean(onboarding.driver_name));
             }
           } catch {
             // noop
@@ -627,16 +629,49 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
 
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <p className="text-sm font-semibold text-foreground">Step 0: Driver Details</p>
-          <Input placeholder="Driver name" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
-          <Input placeholder="Car number (e.g. MH 02 AB 1234)" value={carNumber} onChange={(e) => setCarNumber(e.target.value)} />
-          <Input placeholder="Car model (e.g. Hyundai i20)" value={carModel} onChange={(e) => setCarModel(e.target.value)} />
-          <Input placeholder="Face credential" value={faceCredential} onChange={(e) => setFaceCredential(e.target.value)} />
+          <Input
+            placeholder="Driver name"
+            value={driverName}
+            onChange={(e) => {
+              setDriverName(e.target.value);
+              setProfileSaved(false);
+              setDetailsSavedLabel(false);
+            }}
+          />
+          <Input
+            placeholder="Car number (e.g. MH 02 AB 1234)"
+            value={carNumber}
+            onChange={(e) => {
+              setCarNumber(e.target.value);
+              setProfileSaved(false);
+              setDetailsSavedLabel(false);
+            }}
+          />
+          <Input
+            placeholder="Car model (e.g. Hyundai i20)"
+            value={carModel}
+            onChange={(e) => {
+              setCarModel(e.target.value);
+              setProfileSaved(false);
+              setDetailsSavedLabel(false);
+            }}
+          />
+          <Input
+            placeholder="Face credential"
+            value={faceCredential}
+            onChange={(e) => {
+              setFaceCredential(e.target.value);
+              setProfileSaved(false);
+              setDetailsSavedLabel(false);
+            }}
+          />
           <Input
             placeholder="Emergency contact name"
             value={emergencyContactName}
             onChange={(e) => {
               setEmergencyContactName(e.target.value);
               setEmergencyContactSaved(false);
+              setDetailsSavedLabel(false);
             }}
           />
           <Input
@@ -645,6 +680,7 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
             onChange={(e) => {
               setEmergencyContactPhone(e.target.value);
               setEmergencyContactSaved(false);
+              setDetailsSavedLabel(false);
             }}
           />
           {emergencyContactSaved && (
@@ -655,6 +691,9 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
             onClick={async () => {
               setError(null);
               setMessage(null);
+              setProfileSaved(false);
+              setEmergencyContactSaved(false);
+              setDetailsSavedLabel(false);
               try {
                 await saveOnboardingProfile({
                   faceRegistered: hasLiveMlVerification,
@@ -674,6 +713,7 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
                   await saveEmergencyContact(fetchedDriverId);
                 }
 
+                setDetailsSavedLabel(true);
                 setMessage("Driver details and emergency contact saved.");
               } catch (e) {
                 setError(toUserFriendlyError("Failed to save driver details", e));
@@ -682,7 +722,11 @@ const DriverVerificationScreen = ({ phoneNumber, onVerified }: DriverVerificatio
             disabled={isSavingProfile || isSavingEmergencyContact}
             className="w-full py-3 rounded-xl bg-foreground text-background font-semibold disabled:opacity-60"
           >
-            {isSavingProfile || isSavingEmergencyContact ? "Saving..." : "Save Driver Details"}
+            {isSavingProfile || isSavingEmergencyContact
+              ? "Saving..."
+              : detailsSavedLabel
+                ? "Details Saved"
+                : "Save Driver Details"}
           </button>
         </div>
 

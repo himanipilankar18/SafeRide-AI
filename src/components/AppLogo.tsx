@@ -12,10 +12,10 @@ const AppLogo = ({ showText = true }: AppLogoProps) => {
       </div>
       {showText && (
         <div className="leading-none">
-          <p className="text-[18px] font-black tracking-tight text-transparent bg-clip-text bg-[linear-gradient(90deg,#0f172a_0%,#0f766e_52%,#10b981_100%)]">
+          <p className="text-[18px] font-black tracking-tight text-black">
             SafeRide
           </p>
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">AI</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-black/80">AI</p>
         </div>
       )}
     </div>

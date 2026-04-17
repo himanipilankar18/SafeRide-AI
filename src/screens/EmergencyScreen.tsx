@@ -5,18 +5,14 @@ import {
   Phone,
   Trash2,
   UserPlus,
-  Wrench,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
 import {
   DistanceEntry,
-  NearbyGarage,
   NearbyHospital,
-  getNearbyGarages,
   getNearbyHospitals,
-  reportDriverIncident,
 } from "@/lib/roadsideSupport";
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
@@ -27,6 +23,7 @@ interface EmergencyScreenProps {
   hasActiveTrip?: boolean;
   role: "driver" | "passenger";
   activeTripId?: string | null;
+  onOpenFindHospital?: () => void;
 }
 
 type EmergencyContact = {
@@ -81,6 +78,7 @@ const EmergencyScreen = ({
   hasActiveTrip = false,
   role,
   activeTripId = null,
+  onOpenFindHospital,
 }: EmergencyScreenProps) => {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [contactName, setContactName] = useState("");
@@ -91,25 +89,27 @@ const EmergencyScreen = ({
     "success" | "error" | "info"
   >("info");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
+  const [isSimulatingCall, setIsSimulatingCall] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
-  const [garages, setGarages] = useState<DistanceEntry<NearbyGarage>[]>([]);
   const [hospitals, setHospitals] = useState<DistanceEntry<NearbyHospital>[]>(
     [],
-  );
-  const [garageSource, setGarageSource] = useState<"online" | "offline-cache">(
-    "online",
   );
   const [hospitalSource, setHospitalSource] = useState<
     "online" | "offline-cache"
   >("online");
-  const [driverAssistStatus, setDriverAssistStatus] = useState<string | null>(
-    null,
+  const [supportView, setSupportView] = useState<"none" | "hospital">(
+    "none",
   );
-  const [supportView, setSupportView] = useState<
-    "none" | "garage" | "hospital"
-  >("none");
+  const callTimerRefs = useRef<number[]>([]);
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
+
+  useEffect(() => {
+    return () => {
+      callTimerRefs.current.forEach((timerId) => window.clearTimeout(timerId));
+      callTimerRefs.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -148,17 +148,12 @@ const EmergencyScreen = ({
     let cancelled = false;
 
     const loadSupportPlaces = async () => {
-      const [garageResult, hospitalResult] = await Promise.all([
-        getNearbyGarages(currentLocation, 3),
-        getNearbyHospitals(currentLocation, 3),
-      ]);
+      const hospitalResult = await getNearbyHospitals(currentLocation, 3);
 
       if (cancelled) {
         return;
       }
 
-      setGarages(garageResult.garages);
-      setGarageSource(garageResult.source);
       setHospitals(hospitalResult.hospitals);
       setHospitalSource(hospitalResult.source);
     };
@@ -355,31 +350,29 @@ const EmergencyScreen = ({
     window.location.href = `tel:${phone}`;
   };
 
-  const notifyPassengerAndRequestReplacement = () => {
-    if (!currentLocation) {
-      setDriverAssistStatus("Waiting for GPS. Please try again in a moment.");
+  const simulateEmergencyCall = () => {
+    if (isSimulatingCall) {
       return;
     }
 
-    const nearest = garages[0];
-    reportDriverIncident({
-      reason: "mechanical",
-      location: currentLocation,
-      reportedAt: new Date().toISOString(),
-      nearestGarage: nearest
-        ? {
-            name: nearest.item.name,
-            phone: nearest.item.phone,
-            distanceKm: nearest.distanceKm,
-          }
-        : undefined,
-    });
+    setIsSimulatingCall(true);
+    setAlertStatusType("info");
+    setAlertStatus("Simulating call to emergency services (112)...");
 
-    setDriverAssistStatus(
-      nearest
-        ? `Passenger notified. Replacement flow can continue from this point. Nearest garage: ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km).`
-        : "Passenger notified. Replacement flow can continue from this point.",
-    );
+    const timer1 = window.setTimeout(() => {
+      setAlertStatus("Connecting to dispatch center...");
+    }, 1300);
+
+    const timer2 = window.setTimeout(() => {
+      setAlertStatusType("success");
+      setAlertStatus(
+        "Simulation complete: Emergency operator connected. No real call was placed.",
+      );
+      setIsSimulatingCall(false);
+      callTimerRefs.current = [];
+    }, 2800);
+
+    callTimerRefs.current = [timer1, timer2];
   };
 
   return (
@@ -389,11 +382,11 @@ const EmergencyScreen = ({
       exit={{ opacity: 0 }}
       className="relative h-full flex flex-col"
     >
-      <div className="px-6 pt-2 pb-4 flex items-center">
+      <div className="pl-14 pr-6 pt-12 pb-4 flex items-center">
         <h2 className="text-lg font-bold text-foreground">Emergency</h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 pb-28 pt-4">
+      <div className="flex-1 overflow-y-auto px-6 pb-28 pt-4">
         {/* SOS button */}
         <div className="relative mx-auto mb-10 mt-14 w-36">
           <motion.div
@@ -440,91 +433,54 @@ const EmergencyScreen = ({
           </div>
         )}
 
+        {/* Quick actions */}
+        <div className="w-full space-y-3 mb-6">
+          <motion.button
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            onClick={simulateEmergencyCall}
+            disabled={isSimulatingCall}
+            className="w-full flex items-center gap-4 bg-card rounded-2xl p-4 border border-border transition-colors hover:bg-accent"
+          >
+            <div className="w-12 h-12 rounded-xl bg-destructive/10 flex items-center justify-center">
+              <Phone size={20} className="text-destructive" />
+            </div>
+            <div className="text-left">
+              <p className="font-semibold text-sm text-foreground">
+                {isSimulatingCall ? "Calling Help..." : "Call Help"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {isSimulatingCall
+                  ? "In-app simulation in progress"
+                  : "Simulate emergency services call"}
+              </p>
+            </div>
+          </motion.button>
+        </div>
+
         {role === "driver" && (
           <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-semibold text-foreground">
               Driver Support Tools
             </p>
             <p className="text-xs text-muted-foreground">
-              Use nearby garages or hospitals and hand over the ride safely.
+              For accidents, quickly find nearby hospitals and ambulance help.
             </p>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <button
                 type="button"
-                onClick={() => setSupportView("garage")}
-                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800"
-              >
-                <Wrench size={14} className="mr-1 inline" />
-                Find Garage
-              </button>
-              <button
-                type="button"
-                onClick={() => setSupportView("hospital")}
+                onClick={() => {
+                  setSupportView("hospital");
+                  onOpenFindHospital?.();
+                }}
                 className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700"
               >
                 <Ambulance size={14} className="mr-1 inline" />
                 Find Hospital
               </button>
             </div>
-
-            {supportView === "garage" && (
-              <button
-                type="button"
-                onClick={notifyPassengerAndRequestReplacement}
-                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left text-xs font-bold text-amber-800"
-              >
-                <Wrench size={14} className="mr-2 inline" />
-                Cannot continue ride. Notify passenger and start replacement
-                flow.
-              </button>
-            )}
-
-            {driverAssistStatus && (
-              <p className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-muted-foreground">
-                {driverAssistStatus}
-              </p>
-            )}
-
-            {supportView === "garage" && (
-              <div className="rounded-xl border border-border bg-background p-3">
-                <p className="text-xs font-semibold text-foreground">
-                  Nearby Garages (
-                  {garageSource === "online" ? "Live" : "Offline"})
-                </p>
-                <div className="mt-2 space-y-2">
-                  {garages.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Searching garages...
-                    </p>
-                  ) : (
-                    garages.map((entry) => (
-                      <div
-                        key={entry.item.id}
-                        className="rounded-lg border border-border bg-card px-3 py-2"
-                      >
-                        <p className="text-xs font-semibold text-foreground">
-                          {entry.item.name}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {entry.item.address}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {entry.distanceKm.toFixed(1)} km away
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => callNumber(entry.item.phone)}
-                          className="mt-2 rounded-lg border border-primary/30 px-2 py-1 text-[11px] font-bold text-primary"
-                        >
-                          Call Garage
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
 
             {supportView === "hospital" && (
               <div className="rounded-xl border border-border bg-background p-3">

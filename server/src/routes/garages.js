@@ -18,6 +18,7 @@ router.get("/discover", async (req, res) => {
         ? req.query.driverPhone.trim()
         : null;
     const preferNearby = String(req.query.preferNearby || "false").toLowerCase() === "true";
+    const strictGps = String(req.query.strictGps || "false").toLowerCase() === "true";
 
     if (lat === null || lng === null) {
       return res.status(400).json({
@@ -32,6 +33,7 @@ router.get("/discover", async (req, res) => {
       driverPhone,
       limit,
       preferNearby,
+      strictGps,
     });
 
     res.json({

@@ -370,49 +370,47 @@ const PassengerRideLiveScreen = ({
     }
 
     setIsEndingTrip(true);
-          : null;
-      const location = driverLocation || fallbackLocation;
-      const response = await fetch(`${apiBase}/emergency/alert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contacts,
-          passenger: {
-            phoneNumber: passengerPhone,
-          },
-          driver: {
-            name: rideDetails.driverName,
-            phoneNumber: "N/A",
-            vehicleDetails: `${rideDetails.carModel} (${rideDetails.carNumber})`,
-          },
-          trip: {
-            sourceLabel: "Live trip",
-            destinationLabel: "Destination",
-          },
-          location,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.message || "Failed to send SOS alerts");
-      }
-
-      setSosStatus(data.message || "SOS alerts sent.");
-      setSosStatusType("success");
-    } catch (error) {
-      setSosStatus(
-        error instanceof Error ? error.message : "Failed to send SOS alerts.",
+    try {
+      const finalLocation = driverLocation;
+      const distanceKm =
+        sourceLocation && destinationLocation
+          ? haversineKm(sourceLocation, destinationLocation)
+          : 0;
+      const durationSec = Math.max(
+        1,
+        Math.round((Date.now() - startTimeRef.current) / 1000),
       );
-      setSosStatusType("error");
+      const deviationAlerts = alerts.filter(
+        (alert) => alert.severity === "warning" || alert.severity === "danger",
+      ).length;
+      const averageSpeedKmph =
+        durationSec > 0
+          ? Number(((distanceKm / durationSec) * 3600).toFixed(1))
+          : 0;
+      const safetyScore = Math.max(0, 100 - deviationAlerts * 8);
+      const routeAdherencePercent = Math.max(
+        0,
+        Math.min(100, 100 - deviationAlerts * 12),
+      );
+
+      await onEndTrip({
+        otpCode: ride.otpCode,
+        finalLocation,
+        distanceKm,
+        durationSec,
+        driverPerformance: {
+          safetyScore,
+          deviationAlerts,
+          averageSpeedKmph,
+          routeAdherencePercent,
+          durationSec,
+          distanceKm,
+        },
+      });
     } finally {
-      setIsSendingSos(false);
+      setIsEndingTrip(false);
     }
   };
-
-  const center = driverLocation || { lat: 12.9716, lng: 77.5946 };
->>>>>>> 4728d6f93291b966dfcb0f0b177b94f895875175
 
   return (
     <motion.div
@@ -574,42 +572,7 @@ const PassengerRideLiveScreen = ({
           )}
       </div>
 
-      <div className="absolute inset-x-4 bottom-24 z-[1000] rounded-3xl border border-border bg-card/95 p-4 text-foreground shadow-xl">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <CarFront size={16} className="text-primary" />
-          Driver Live Location
-        </div>
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <LocateFixed size={14} className="text-primary" />
-          {driverLocation
-            ? `${driverLocation.lat.toFixed(5)}, ${driverLocation.lng.toFixed(5)}`
-            : "Waiting for GPS..."}
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">{status}</p>
-        {updatedAt && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Updated: {new Date(updatedAt).toLocaleTimeString()}
-          </p>
-        )}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onOpenEmergency}
-            className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700"
-          >
-            <Phone size={13} className="mr-1 inline" />
-            SOS
-          </button>
-          <button
-            type="button"
-            onClick={handleEndTrip}
-            disabled={!onEndTrip || isEndingTrip}
-            className="rounded-xl bg-green-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
-          >
-            {isEndingTrip ? "Ending..." : "End Trip"}
-          </button>
-        </div>
-      </div>
+      {/* Driver Live Location card removed as requested */}
     </motion.div>
   );
 };

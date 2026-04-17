@@ -49,6 +49,8 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
+const NOMINATIM_REVERSE_ENDPOINT = "https://nominatim.openstreetmap.org/reverse";
+const reverseAddressCache = new Map<string, string>();
 
 const GARAGE_DIRECTORY: NearbyGarage[] = [
   {
@@ -243,6 +245,75 @@ const toPhoneText = (tags: Record<string, string> | undefined) =>
 const isFiniteCoordinate = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+const formatReverseAddress = (payload: {
+  display_name?: string;
+  address?: Record<string, string>;
+}) => {
+  const addr = payload.address || {};
+  const pieces = [
+    addr.shop,
+    addr.road,
+    addr.neighbourhood,
+    addr.suburb,
+    addr.city,
+    addr.town,
+    addr.village,
+  ].filter(Boolean);
+
+  if (pieces.length > 0) {
+    return pieces.slice(0, 4).join(", ");
+  }
+
+  if (typeof payload.display_name === "string" && payload.display_name.trim()) {
+    return payload.display_name.split(",").slice(0, 4).join(",").trim();
+  }
+
+  return "";
+};
+
+const reverseGeocodeAddress = async (lat: number, lng: number) => {
+  const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = reverseAddressCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 2200);
+    const url = new URL(NOMINATIM_REVERSE_ENDPOINT);
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lng));
+
+    const response = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        "Accept-Language": "en",
+      },
+    });
+    window.clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return "";
+    }
+
+    const payload = (await response.json()) as {
+      display_name?: string;
+      address?: Record<string, string>;
+    };
+
+    const resolved = formatReverseAddress(payload);
+    if (resolved) {
+      reverseAddressCache.set(key, resolved);
+    }
+
+    return resolved;
+  } catch {
+    return "";
+  }
+};
+
 const fetchGaragesFromOverpass = async (
   origin: LatLng,
 ): Promise<NearbyGarage[]> => {
@@ -298,17 +369,37 @@ const fetchGaragesFromOverpass = async (
           const name =
             String(element.tags?.name || "Nearby Garage").trim() ||
             "Nearby Garage";
+          const address = toAddressText(element.tags);
 
           return {
             id: `osm-${element.type}-${element.id}`,
             name,
             phone: toPhoneText(element.tags),
-            address: toAddressText(element.tags),
+            address,
             location: { lat, lng },
             services: ["Roadside assistance", "Mechanical support"],
           } satisfies NearbyGarage;
         })
         .filter((item): item is NearbyGarage => Boolean(item));
+
+      const unresolved = garages
+        .filter((garage) => garage.address === "Address unavailable")
+        .slice(0, 6);
+
+      if (unresolved.length > 0) {
+        await Promise.all(
+          unresolved.map(async (garage) => {
+            const resolved = await reverseGeocodeAddress(
+              garage.location.lat,
+              garage.location.lng,
+            );
+
+            garage.address =
+              resolved ||
+              `Near ${garage.location.lat.toFixed(4)}, ${garage.location.lng.toFixed(4)}`;
+          }),
+        );
+      }
 
       if (garages.length > 0) {
         return garages;

@@ -1,29 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ExternalLink, MapPin, Phone, Wrench } from "lucide-react";
+import { Ambulance, ExternalLink, MapPin, Phone } from "lucide-react";
 import AppLogo from "@/components/AppLogo";
 import type { LatLng } from "@/lib/navigationSafety";
-import { getNearbyGarages } from "@/lib/roadsideSupport";
+import { getNearbyHospitals } from "@/lib/roadsideSupport";
 import { MapContainer, Marker, TileLayer } from "react-leaflet";
 import L from "leaflet";
 
-interface DriverFindGarageScreenProps {
-  onBackToHome: () => void;
+interface DriverFindHospitalScreenProps {
+  onBackToEmergency: () => void;
 }
 
-type GarageView = {
-  garageId: string;
+type HospitalView = {
+  hospitalId: string;
   name: string;
   phone: string;
   address: string;
   lat: number;
   lng: number;
-  services: string[];
   distanceKm: number | null;
-  distanceToRouteKm: number | null;
 };
 
-type GarageDirectionsTarget = {
+type HospitalDirectionsTarget = {
   name: string;
   lat: number;
   lng: number;
@@ -40,86 +38,83 @@ const myLocationIcon = L.divIcon({
   iconAnchor: [13, 13],
 });
 
-const garageIcon = L.divIcon({
+const hospitalIcon = L.divIcon({
   className: "",
   html: `
     <div style="position:relative;width:24px;height:24px;display:grid;place-items:center;">
-      <div style="width:24px;height:24px;border-radius:9999px;background:#f8fafc;border:2px solid #0f172a;box-shadow:0 1px 6px rgba(0,0,0,.25);"></div>
-      <div style="position:absolute;font-size:12px;line-height:1;">🛠️</div>
+      <div style="width:24px;height:24px;border-radius:9999px;background:#fef2f2;border:2px solid #dc2626;box-shadow:0 1px 6px rgba(0,0,0,.25);"></div>
+      <div style="position:absolute;font-size:11px;line-height:1;color:#dc2626;font-weight:700;">H</div>
     </div>`,
   iconSize: [24, 24],
   iconAnchor: [12, 12],
 });
 
-const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) => {
+const DriverFindHospitalScreen = ({
+  onBackToEmergency,
+}: DriverFindHospitalScreenProps) => {
   const [location, setLocation] = useState<LatLng | null>(null);
-  const [garageSource, setGarageSource] = useState<"online" | "offline-cache">("online");
-  const [nearbyGarages, setNearbyGarages] = useState<GarageView[]>([]);
-  const [statusText, setStatusText] = useState("Finding nearby garages...");
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [hospitalSource, setHospitalSource] = useState<"online" | "offline-cache">("online");
+  const [nearbyHospitals, setNearbyHospitals] = useState<HospitalView[]>([]);
+  const [statusText, setStatusText] = useState("Finding nearby hospitals...");
+  const [statusError, setStatusError] = useState<string | null>(null);
 
-  const mapCenter = useMemo(
-    () => location,
-    [location],
-  );
+  const mapCenter = useMemo(() => location, [location]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadNearby = async (point: LatLng) => {
       try {
-        setStatusText("Finding garages near your current location...");
-        const { garages, source } = await getNearbyGarages(point, 8);
+        setStatusText("Finding hospitals near your current location...");
+
+        const { hospitals, source } = await getNearbyHospitals(point, 8);
 
         if (cancelled) {
           return;
         }
 
-        const mappedGarages: GarageView[] = garages.map((entry) => ({
-          garageId: entry.item.id,
+        const mappedHospitals: HospitalView[] = hospitals.map((entry) => ({
+          hospitalId: entry.item.id,
           name: entry.item.name,
           phone: entry.item.phone,
           address: entry.item.address,
           lat: entry.item.location.lat,
           lng: entry.item.location.lng,
-          services: entry.item.services,
           distanceKm: entry.distanceKm,
-          distanceToRouteKm: null,
         }));
 
-        setNearbyGarages(mappedGarages);
-        setGarageSource(source);
-        if (garages.length === 0) {
-          setStatusText("No garages found near your current location.");
-          setLocationError(
-            "No nearby garages available right now. Try again in a moment.",
-          );
+        setNearbyHospitals(mappedHospitals);
+        setHospitalSource(source);
+
+        if (mappedHospitals.length === 0) {
+          setStatusText("No hospitals found near your current location.");
+          setStatusError("No nearby hospitals available right now. Try again in a moment.");
           return;
         }
 
         setStatusText(
           source === "online"
-              ? "Showing live garages nearest to your location."
-              : "Offline mode: showing cached garages nearest to you.",
+            ? "Showing live hospitals nearest to your location."
+            : "Offline mode: showing cached hospitals nearest to you.",
         );
-        setLocationError(null);
+        setStatusError(null);
       } catch (error) {
         if (cancelled) {
           return;
         }
-        setNearbyGarages([]);
-        setLocationError(
+        setNearbyHospitals([]);
+        setStatusError(
           error instanceof Error
             ? error.message
-            : "Could not fetch garages for your location.",
+            : "Could not fetch hospitals for your location.",
         );
-        setStatusText("Unable to fetch garages right now.");
+        setStatusText("Unable to fetch hospitals right now.");
       }
     };
 
     if (!navigator.geolocation) {
-      setLocationError("Location is unavailable on this device. Enable GPS to discover nearest garages.");
-      setStatusText("Location required to find nearby garages.");
+      setStatusError("Location is unavailable on this device. Enable GPS to discover nearest hospitals.");
+      setStatusText("Location required to find nearby hospitals.");
       return () => {
         cancelled = true;
       };
@@ -143,10 +138,11 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
         if (cancelled) {
           return;
         }
+
         setLocation(null);
-        setNearbyGarages([]);
-        setLocationError("Location permission denied or unavailable. Turn on location to see garages near you.");
-        setStatusText("Location permission needed to find nearby garages.");
+        setNearbyHospitals([]);
+        setStatusError("Location permission denied or unavailable. Turn on location to see hospitals near you.");
+        setStatusText("Location permission needed to find nearby hospitals.");
       },
       {
         enableHighAccuracy: true,
@@ -160,19 +156,17 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
     };
   }, []);
 
-  const callGarage = (phone: string) => {
+  const callHospital = (phone: string) => {
     if (!phone || phone.toLowerCase().includes("unavailable")) {
-      setLocationError("In-app simulation: garage phone is unavailable.");
+      setStatusError("Phone number unavailable for this hospital.");
       return;
     }
-    setLocationError(
-      `In-app simulation: contacting ${phone}. No real call was placed.`,
-    );
+    window.location.href = `tel:${phone}`;
   };
 
-  const openDirections = (garage: GarageDirectionsTarget) => {
-    setLocationError(
-      `In-app simulation: directions to ${garage.name} (${garage.lat.toFixed(4)}, ${garage.lng.toFixed(4)}). External map app not opened.`,
+  const openDirections = (hospital: HospitalDirectionsTarget) => {
+    setStatusError(
+      `In-app simulation: directions to ${hospital.name} (${hospital.lat.toFixed(4)}, ${hospital.lng.toFixed(4)}). External map app not opened.`,
     );
   };
 
@@ -188,27 +182,27 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
           <AppLogo showText />
           <button
             type="button"
-            onClick={onBackToHome}
+            onClick={onBackToEmergency}
             className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
           >
-            Back Home
+            Back SOS
           </button>
         </div>
 
         <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-900">Find Garage</h2>
-              <p className="text-xs text-slate-500">Get nearby support points in one clean view.</p>
+              <h2 className="text-lg font-black text-slate-900">Find Hospital</h2>
+              <p className="text-xs text-slate-500">Get nearby emergency medical support points.</p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700">
-              {garageSource === "online" ? "Live" : "Offline"}
+            <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-red-700">
+              {hospitalSource === "online" ? "Live" : "Offline"}
             </span>
           </div>
           <p className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600">{statusText}</p>
-          {locationError && (
+          {statusError && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-              {locationError}
+              {statusError}
             </p>
           )}
         </div>
@@ -227,11 +221,11 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
                   attribution="&copy; OpenStreetMap contributors"
                 />
                 {location && <Marker position={[location.lat, location.lng]} icon={myLocationIcon} />}
-                {nearbyGarages.map((entry) => (
+                {nearbyHospitals.map((entry) => (
                   <Marker
-                    key={entry.garageId}
+                    key={entry.hospitalId}
                     position={[entry.lat, entry.lng]}
-                    icon={garageIcon}
+                    icon={hospitalIcon}
                   />
                 ))}
               </MapContainer>
@@ -240,33 +234,33 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
         )}
 
         <div className="mt-4 space-y-3">
-          {nearbyGarages.length === 0 ? (
+          {nearbyHospitals.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              {locationError || "Searching garages near your location..."}
+              {statusError || "Searching hospitals near your location..."}
             </div>
           ) : (
-            nearbyGarages.map((entry) => (
+            nearbyHospitals.map((entry) => (
               <div
-                key={entry.garageId}
+                key={entry.hospitalId}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_6px_20px_rgba(15,23,42,0.08)]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-slate-900">{entry.name}</p>
                     <p className="mt-0.5 text-xs text-slate-500">{entry.address}</p>
-                    <p className="mt-1 text-xs font-semibold text-emerald-700">
+                    <p className="mt-1 text-xs font-semibold text-red-700">
                       {entry.distanceKm !== null ? `${entry.distanceKm.toFixed(1)} km away` : "Distance unavailable"}
                     </p>
                   </div>
-                  <div className="rounded-lg bg-slate-100 p-2">
-                    <Wrench size={16} className="text-slate-700" />
+                  <div className="rounded-lg bg-red-50 p-2">
+                    <Ambulance size={16} className="text-red-700" />
                   </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => callGarage(entry.phone)}
+                    onClick={() => callHospital(entry.phone)}
                     className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white py-2 text-xs font-semibold text-slate-800"
                   >
                     <Phone size={13} />
@@ -287,18 +281,6 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
                     Directions
                   </button>
                 </div>
-
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(entry.services || []).slice(0, 3).map((service) => (
-                    <span
-                      key={`${entry.garageId}-${service}`}
-                      className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700"
-                    >
-                      <MapPin size={10} className="mr-1 inline" />
-                      {service}
-                    </span>
-                  ))}
-                </div>
               </div>
             ))
           )}
@@ -308,4 +290,4 @@ const DriverFindGarageScreen = ({ onBackToHome }: DriverFindGarageScreenProps) =
   );
 };
 
-export default DriverFindGarageScreen;
+export default DriverFindHospitalScreen;
