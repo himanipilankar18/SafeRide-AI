@@ -1,5 +1,9 @@
 import express from "express";
 import { sendSms } from "../config/twilio.js";
+import {
+  getEmergencyContactsByDriverId,
+  getLatestLiveLocationByDriverId,
+} from "../db/sqlite.js";
 
 const router = express.Router();
 
@@ -283,6 +287,116 @@ router.post("/dispatch", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to dispatch emergency messages",
+    });
+  }
+});
+
+router.post("/trigger", async (req, res) => {
+  try {
+    const driverId = Number(req.body?.driverId);
+    if (!driverId) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid driverId is required",
+      });
+    }
+
+    console.log(`[EMERGENCY] Trigger received for driverId=${driverId}`);
+
+    const [contacts, latestLocation] = await Promise.all([
+      getEmergencyContactsByDriverId(driverId),
+      getLatestLiveLocationByDriverId(driverId),
+    ]);
+
+    console.log(`[EMERGENCY] Contacts fetched: ${contacts.length}`);
+
+    const lat = latestLocation?.lat;
+    const lng = latestLocation?.lng;
+    const hasValidLocation =
+      Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+    const locationText =
+      hasValidLocation
+        ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+        : "Unavailable";
+    const mapLink = hasValidLocation
+      ? `https://maps.google.com/?q=${Number(lat)},${Number(lng)}`
+      : "Unavailable";
+
+    const recipients = contacts
+      .map(cleanContact)
+      .filter((contact) => contact.phone);
+
+    const smsBody = [
+      "🚨 Emergency Alert: Driver may be in danger.",
+      `Location: ${mapLink}`,
+      `Coordinates: ${locationText}`,
+      `Driver ID: ${driverId}`,
+    ].join("\n");
+
+    const smsResults = [];
+
+    for (const contact of recipients) {
+      if (!isValidE164(contact.phone)) {
+        console.error(
+          `[EMERGENCY] SMS failed for ${contact.name} (${contact.phone}): Invalid E.164 format`,
+        );
+        smsResults.push({
+          name: contact.name,
+          phone: contact.phone,
+          success: false,
+          error: "Invalid E.164 format",
+        });
+        continue;
+      }
+
+      const smsResult = await sendSms(contact.phone, smsBody);
+      if (smsResult.success) {
+        console.log(
+          `Emergency alert sent to ${contact.name} (${contact.phone}) with location ${locationText}`,
+        );
+      } else {
+        console.error(
+          `[EMERGENCY] SMS failed for ${contact.name} (${contact.phone}): ${smsResult.error || "Unknown error"}`,
+        );
+      }
+
+      smsResults.push({
+        name: contact.name,
+        phone: contact.phone,
+        success: Boolean(smsResult.success),
+        sid: smsResult.sid || null,
+        error: smsResult.error || null,
+      });
+    }
+
+    if (contacts.length === 0) {
+      console.log(
+        `[EMERGENCY] No emergency contacts found for driverId=${driverId}`,
+      );
+    }
+
+    const sentCount = smsResults.filter((item) => item.success).length;
+
+    return res.json({
+      success: true,
+      message: "Emergency trigger processed",
+      driverId,
+      contactsNotified: recipients.length,
+      smsSent: sentCount,
+      smsResults,
+      location: latestLocation
+        ? {
+            lat: Number(lat),
+            lng: Number(lng),
+            timestamp: latestLocation.timestamp,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Error in /api/emergency/trigger endpoint:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to process emergency trigger",
     });
   }
 });

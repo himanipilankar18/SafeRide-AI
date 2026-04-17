@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+
+# ML data (important)
+driver_safety_system/classification_frames/
+driver_safety_system/*.jpg
+driver_safety_system/*.png
+driver_safety_system/*.mp4
+
+# Models
+driver_safety_system/*.task
+driver_safety_system/*.pt
+
+# Backup
+backup/

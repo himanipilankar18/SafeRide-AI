@@ -224,88 +224,86 @@ const DriverHomeScreen = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="relative h-full overflow-y-auto bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_40%,#eef2f7_100%)]"
+      className="relative h-full overflow-hidden bg-slate-950"
     >
-      <div className="px-5 pt-10 pb-24">
-        <div className="mb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      <div className="absolute inset-0">
+        <MapContainer
+          center={[initialCenter.lat, initialCenter.lng]}
+          zoom={16}
+          className="h-full w-full"
+          style={{ minHeight: "100%" }}
+          zoomControl={false}
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
+          />
+          {currentLocation && (
+            <Marker
+              position={[currentLocation.lat, currentLocation.lng]}
+              icon={deviceLocationIcon}
+            />
+          )}
+          {currentLocation && (
+            <FollowDevice
+              position={currentLocation}
+              enabled={shouldFollowMap}
+              onUserPan={() => setShouldFollowMap(false)}
+            />
+          )}
+        </MapContainer>
+      </div>
+
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.22)_0%,rgba(2,6,23,0.05)_35%,rgba(2,6,23,0.2)_100%)]" />
+
+      <div className="pointer-events-none absolute inset-0 z-[1200]">
+        <div className="absolute inset-x-5 top-10 flex items-center justify-between">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-white/70 bg-white/55 px-3 py-2 shadow-sm backdrop-blur-xl">
             <AppLogo showText />
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-700">
               Driver
             </p>
           </div>
-          <button className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300/80 bg-white/85 shadow-sm backdrop-blur">
+          <button className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/55 shadow-sm backdrop-blur-xl">
             <Bell size={16} className="text-slate-700" />
           </button>
         </div>
 
-        <div className="relative overflow-hidden rounded-[24px] border border-slate-300/70 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.14)]">
-          <div className="h-52">
-            <MapContainer
-              center={[initialCenter.lat, initialCenter.lng]}
-              zoom={16}
-              className="h-full w-full"
-              style={{ minHeight: "100%" }}
-              zoomControl={false}
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-              {currentLocation && (
-                <Marker
-                  position={[currentLocation.lat, currentLocation.lng]}
-                  icon={deviceLocationIcon}
-                />
-              )}
-              {currentLocation && (
-                <FollowDevice
-                  position={currentLocation}
-                  enabled={shouldFollowMap}
-                  onUserPan={() => setShouldFollowMap(false)}
-                />
-              )}
-            </MapContainer>
-          </div>
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/25 via-transparent to-transparent" />
-          <div className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur">
-            Map Preview
-          </div>
+        <div className="absolute left-5 top-28 rounded-full border border-white/70 bg-white/55 px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur-xl">
+          Live Map
         </div>
 
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_6px_20px_rgba(15,23,42,0.08)]">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
-              <MapPin size={18} className="text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Live Device Location</p>
-              <p className="text-xs leading-snug text-slate-500">
-                {currentLocation ? locationLabel : "Waiting for GPS..."}
-              </p>
+        <div className="absolute inset-x-5 bottom-24 space-y-3">
+          <div className="pointer-events-auto rounded-2xl border border-white/75 bg-white/70 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.18)] backdrop-blur-xl">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+                <MapPin size={18} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Live Device Location</p>
+                <p className="text-xs leading-snug text-slate-500">
+                  {currentLocation ? locationLabel : "Waiting for GPS..."}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="mt-5 space-y-3">
           <button
             onClick={onGoOnline}
-            className="group w-full rounded-2xl border border-emerald-400/70 bg-emerald-500 px-4 py-4 text-left text-white shadow-[0_10px_24px_rgba(16,185,129,0.35)] transition-all hover:-translate-y-0.5 active:translate-y-0"
+            className="pointer-events-auto group w-full rounded-2xl border border-emerald-300 bg-emerald-500 px-4 py-4 text-left text-white shadow-[0_12px_26px_rgba(16,185,129,0.35)] transition-all hover:-translate-y-0.5 active:translate-y-0"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <PlusCircle size={20} />
-                <div>
-                  <p className="text-base font-extrabold">Join a Ride</p>
-                  <p className="text-xs text-emerald-50">Start accepting nearby ride requests.</p>
-                </div>
+            <div className="flex items-center gap-3">
+              <PlusCircle size={20} />
+              <div>
+                <p className="text-base font-extrabold">Join a Ride</p>
+                <p className="text-xs text-emerald-50">Start accepting nearby ride requests.</p>
               </div>
             </div>
           </button>
 
           <button
             onClick={onOpenFindGarage}
-            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-left text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-all hover:-translate-y-0.5 active:translate-y-0"
+            className="pointer-events-auto w-full rounded-2xl border border-white/75 bg-white/70 px-4 py-4 text-left text-slate-900 shadow-[0_10px_22px_rgba(15,23,42,0.16)] backdrop-blur-xl transition-all hover:-translate-y-0.5 active:translate-y-0"
           >
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
@@ -317,11 +315,11 @@ const DriverHomeScreen = ({
               </div>
             </div>
           </button>
-        </div>
 
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Support Zone</p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">Nearby garages within 5 km are one tap away.</p>
+          <div className="pointer-events-auto rounded-2xl border border-white/75 bg-white/65 px-4 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Support Zone</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">Nearby garages within 5 km are one tap away.</p>
+          </div>
         </div>
       </div>
     </motion.div>
