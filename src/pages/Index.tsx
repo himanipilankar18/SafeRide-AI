@@ -10,7 +10,6 @@ import MonitoringScreen from "@/screens/MonitoringScreen";
 import EmergencyScreen from "@/screens/EmergencyScreen";
 import TripSummaryScreen from "@/screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
-import DriverFindGarageScreen from "@/screens/DriverFindGarageScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
 import DriverRideSetupScreen from "@/screens/DriverRideSetupScreen";
@@ -27,7 +26,6 @@ type Screen =
   | "login"
   | "home"
   | "driverVerify"
-  | "findGarage"
   | "driverRideSetup"
   | "passengerJoinRide"
   | "passengerRideLive"
@@ -35,6 +33,15 @@ type Screen =
   | "monitoring"
   | "emergency"
   | "summary";
+
+const NAV_TABS: Screen[] = [
+  "home",
+  "monitoring",
+  "emergency",
+  "summary",
+  "profile",
+  "passengerRideLive",
+];
 
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
@@ -44,6 +51,7 @@ const Index = () => {
   );
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
   const [joinedRide, setJoinedRide] = useState<JoinedRidePayload | null>(null);
+  const [activeTripId, setActiveTripId] = useState<string | null>(null);
   const [driverJoinedRideTrip, setDriverJoinedRideTrip] =
     useState<TripConfig | null>(null);
   const [tripConfig, setTripConfig] = useState<TripConfig>({
@@ -51,7 +59,7 @@ const Index = () => {
     destinationLabel: "Koramangala, Bangalore",
     source: { lat: 12.9758, lng: 77.6058 },
     destination: { lat: 12.9352, lng: 77.6245 },
-    toleranceKm: 0.3,
+    toleranceKm: 0.25,
     sampleIntervalSec: 5,
     driverName: "SafeRide Driver",
     driverPhone: "+91 demo-driver",
@@ -81,10 +89,10 @@ const Index = () => {
       const onboarding = data.onboarding;
       return Boolean(
         onboarding.driver_name &&
-          onboarding.car_number &&
-          onboarding.car_model &&
-          onboarding.face_credential &&
-          onboarding.face_registered,
+        onboarding.car_number &&
+        onboarding.car_model &&
+        onboarding.face_credential &&
+        onboarding.face_registered,
       );
     } catch {
       return false;
@@ -104,9 +112,6 @@ const Index = () => {
         setScreen("login");
         break;
       case "driverRideSetup":
-        setScreen("home");
-        break;
-      case "findGarage":
         setScreen("home");
         break;
       case "passengerJoinRide":
@@ -139,6 +144,10 @@ const Index = () => {
     setScreen("login");
   };
 
+  const shouldShowBottomNav = Boolean(role) && NAV_TABS.includes(screen);
+  const bottomNavActive =
+    screen === "passengerRideLive" ? "monitoring" : screen;
+
   const renderScreen = () => {
     switch (screen) {
       case "onboarding":
@@ -170,11 +179,14 @@ const Index = () => {
           <DriverHomeScreen
             key="driver-home"
             onGoOnline={async () => {
-              const phone = localStorage.getItem("phoneNumber") || driverCredential || "driver-demo";
+              const phone =
+                localStorage.getItem("phoneNumber") ||
+                driverCredential ||
+                "driver-demo";
               const done = await checkDriverOnboardingDone(phone);
               setScreen(done ? "driverRideSetup" : "driverVerify");
             }}
-            onOpenFindGarage={() => setScreen("findGarage")}
+            onOpenFindGarage={() => setScreen("monitoring")}
           />
         ) : (
           <HomeScreen
@@ -213,6 +225,7 @@ const Index = () => {
                   lat: trip.source.lat,
                   lng: trip.source.lng,
                 });
+                setActiveTripId(String(data.ride.otp_code));
 
                 setScreen("passengerRideLive");
               } catch {
@@ -222,7 +235,6 @@ const Index = () => {
 
               setHasActiveTrip(true);
             }}
-            onNavigate={(s) => setScreen(s as Screen)}
           />
         );
       case "driverVerify":
@@ -235,25 +247,19 @@ const Index = () => {
             }}
           />
         );
-      case "findGarage":
-        return (
-          <DriverFindGarageScreen
-            key="driver-find-garage"
-            onBackToHome={() => setScreen("home")}
-          />
-        );
       case "driverRideSetup":
         return (
           <DriverRideSetupScreen
             key="driver-ride-setup"
             driverPhone={driverCredential}
             onJoinedRide={(ride) => {
+              setActiveTripId(ride.otpCode);
               setDriverJoinedRideTrip({
                 sourceLabel: ride.sourceLabel,
                 destinationLabel: ride.destinationLabel,
                 source: ride.source,
                 destination: ride.destination,
-                toleranceKm: 0.3,
+                toleranceKm: 0.25,
                 sampleIntervalSec: 5,
                 driverName: "Driver",
                 driverPhone: driverCredential,
@@ -272,6 +278,7 @@ const Index = () => {
             }
             onJoined={(ride) => {
               setJoinedRide(ride);
+              setActiveTripId(ride.otpCode);
               setHasActiveTrip(true);
               setScreen("passengerRideLive");
             }}
@@ -282,6 +289,7 @@ const Index = () => {
           <PassengerRideLiveScreen
             key="passenger-ride-live"
             ride={joinedRide}
+            tripId={activeTripId || joinedRide.otpCode}
           />
         ) : (
           <PassengerJoinRideScreen
@@ -291,6 +299,7 @@ const Index = () => {
             }
             onJoined={(ride) => {
               setJoinedRide(ride);
+              setActiveTripId(ride.otpCode);
               setHasActiveTrip(true);
               setScreen("passengerRideLive");
             }}
@@ -306,6 +315,7 @@ const Index = () => {
             onTripChange={setDriverJoinedRideTrip}
             hasActiveTrip={hasActiveTrip}
             isDriverMode
+            tripId={activeTripId || undefined}
           />
         ) : role === "driver" ? (
           <DriverMonitoringScreen
@@ -320,6 +330,7 @@ const Index = () => {
             tripConfig={tripConfig}
             onTripChange={setTripConfig}
             hasActiveTrip={hasActiveTrip}
+            tripId={activeTripId || undefined}
           />
         );
       case "profile":
@@ -338,41 +349,34 @@ const Index = () => {
           <EmergencyScreen
             key="emergency"
             onBack={() => setScreen("monitoring")}
-            onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={tripConfig}
             hasActiveTrip={hasActiveTrip}
           />
         );
       case "summary":
-        return (
-          <TripSummaryScreen
-            key="summary"
-            onNavigate={(s) => setScreen(s as Screen)}
-          />
-        );
+        return <TripSummaryScreen key="summary" />;
     }
   };
 
   return (
     <PhoneFrame showBack={screen !== "onboarding"} onBack={handleBack}>
       <div className="relative h-full">
-        <AnimatePresence mode="wait" initial={false}>
-          {renderScreen()}
-        </AnimatePresence>
+        <div className={shouldShowBottomNav ? "h-full pb-[84px]" : "h-full"}>
+          <AnimatePresence mode="wait" initial={false}>
+            {renderScreen()}
+          </AnimatePresence>
+        </div>
 
-        {role === "driver" &&
-          ["home", "monitoring", "emergency", "summary", "profile"].includes(
-            screen,
-          ) && (
-            <div className="absolute inset-x-0 bottom-0 z-[2000]">
-              <BottomNav
-                active={screen === "findGarage" ? "monitoring" : screen}
-                onNavigate={(nextScreen) => {
-                  setScreen(nextScreen as Screen);
-                }}
-              />
-            </div>
-          )}
+        {shouldShowBottomNav && (
+          <div className="absolute inset-x-0 bottom-0 z-[2000]">
+            <BottomNav
+              active={bottomNavActive}
+              onNavigate={(nextScreen) => {
+                setScreen(nextScreen as Screen);
+              }}
+            />
+          </div>
+        )}
       </div>
     </PhoneFrame>
   );
