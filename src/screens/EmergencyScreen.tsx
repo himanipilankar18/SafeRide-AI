@@ -3,13 +3,11 @@ import { MapPin, Phone, Share2, Trash2, UserPlus } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
-import BottomNav from "@/components/BottomNav";
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
 
 interface EmergencyScreenProps {
   onBack: () => void;
-  onNavigate: (screen: string) => void;
   tripConfig: TripConfig;
   hasActiveTrip?: boolean;
 }
@@ -42,7 +40,6 @@ const normalizePhoneNumber = (value: string) => {
 
 const EmergencyScreen = ({
   onBack,
-  onNavigate,
   tripConfig,
   hasActiveTrip = false,
 }: EmergencyScreenProps) => {
@@ -400,7 +397,6 @@ const EmergencyScreen = ({
           </div>
         </div>
       </div>
-      <BottomNav active="emergency" onNavigate={onNavigate} />
     </motion.div>
   );
 };

@@ -2,7 +2,6 @@ import { motion } from "framer-motion";
 import { Bell, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppLogo from "@/components/AppLogo";
-import BottomNav from "@/components/BottomNav";
 import PlaceSearchField from "@/components/PlaceSearchField";
 import { geocodePlace, PlaceSuggestion } from "@/lib/placeSearch";
 import { LatLng } from "@/lib/navigationSafety";
@@ -35,10 +34,9 @@ export interface TripConfig {
 
 interface HomeScreenProps {
   onCreateRide: (trip: TripConfig) => void;
-  onNavigate: (screen: string) => void;
 }
 
-const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
+const HomeScreen = ({ onCreateRide }: HomeScreenProps) => {
   const [sourceQuery, setSourceQuery] = useState("");
   const [destinationQuery, setDestinationQuery] = useState("");
   const [sourceSelection, setSourceSelection] =
@@ -48,6 +46,11 @@ const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
   const [heading, setHeading] = useState<number | null>(null);
   const [shouldFollowMap, setShouldFollowMap] = useState(true);
+  const [locationStatus, setLocationStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] =
+    useState(false);
   const [isResolvingTrip, setIsResolvingTrip] = useState(false);
   const [tripError, setTripError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -128,10 +131,12 @@ const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
 
   useEffect(() => {
     if (!navigator.geolocation) {
+      setLocationStatus("error");
+      setHasResolvedInitialLocation(true);
       return;
     }
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
+    navigator.geolocation.getCurrentPosition(
       (position) => {
         const livePoint = {
           lat: position.coords.latitude,
@@ -139,18 +144,40 @@ const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
         };
 
         setCurrentLocation(livePoint);
-        if (
-          typeof position.coords.heading === "number" &&
-          Number.isFinite(position.coords.heading)
-        ) {
-          setHeading(position.coords.heading);
-        }
+        setLocationStatus("ready");
+        setHasResolvedInitialLocation(true);
+
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          (nextPosition) => {
+            const nextPoint = {
+              lat: nextPosition.coords.latitude,
+              lng: nextPosition.coords.longitude,
+            };
+
+            setCurrentLocation(nextPoint);
+            if (
+              typeof nextPosition.coords.heading === "number" &&
+              Number.isFinite(nextPosition.coords.heading)
+            ) {
+              setHeading(nextPosition.coords.heading);
+            }
+          },
+          () => undefined,
+          {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 3000,
+          },
+        );
       },
-      () => undefined,
+      () => {
+        setLocationStatus("error");
+        setHasResolvedInitialLocation(true);
+      },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 3000,
+        timeout: 5000,
+        maximumAge: 0,
       },
     );
 
@@ -240,6 +267,23 @@ const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
       setIsResolvingTrip(false);
     }
   };
+
+  if (!hasResolvedInitialLocation) {
+    return (
+      <div className="flex h-full items-center justify-center bg-black text-white">
+        <div className="text-center">
+          <div className="mb-3 text-sm uppercase tracking-[0.3em] text-gray-400">
+            Locating device
+          </div>
+          <div className="text-lg font-semibold">
+            {locationStatus === "loading"
+              ? "Getting your GPS position..."
+              : "Using fallback location"}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -370,13 +414,6 @@ const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
         <div className="relative">
           <div className="w-4 h-4 rounded-full bg-primary border-[3px] border-primary-foreground" />
           <div className="absolute inset-0 w-4 h-4 rounded-full bg-primary/40 animate-pulse-ring" />
-        </div>
-      </div>
-
-      {/* Bottom card */}
-      <div className="absolute bottom-0 left-0 right-0 z-10">
-        <div className="bg-card/90 backdrop-blur-xl rounded-t-3xl px-6 pt-5 pb-2 border-t border-border shadow-[0_-10px_30px_rgba(0,0,0,0.25)]">
-          <BottomNav active="home" onNavigate={onNavigate} />
         </div>
       </div>
     </motion.div>
