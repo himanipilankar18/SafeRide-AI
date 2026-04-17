@@ -20,7 +20,9 @@ Thumbs.db
 .env
 
 # ML data (important)
-driver_safety_system/classification_frames/
+driver_safety_system/classification_frames/*.jpg
+driver_safety_system/classification_frames/*.png
+driver_safety_system/classification_frames/*.mp4
 driver_safety_system/*.jpg
 driver_safety_system/*.png
 driver_safety_system/*.mp4
