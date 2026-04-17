@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CarFront, LocateFixed, UserRound } from "lucide-react";
+import { AlertTriangle, CarFront, LocateFixed, UserRound } from "lucide-react";
 import L from "leaflet";
 import { MapContainer, Marker, TileLayer } from "react-leaflet";
 import type { JoinedRidePayload } from "@/screens/PassengerJoinRideScreen";
+import { Button } from "@/components/ui/button";
+import {
+  useLiveTracking,
+  type DeviationAlert,
+  type LiveTrackingEvent,
+} from "@/lib/useLiveTracking";
 
 interface PassengerRideLiveScreenProps {
   ride: JoinedRidePayload;
+  tripId?: string;
 }
 
 const driverIcon = L.divIcon({
@@ -16,13 +23,37 @@ const driverIcon = L.divIcon({
   iconAnchor: [9, 9],
 });
 
-const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
+const PassengerRideLiveScreen = ({
+  ride,
+  tripId,
+}: PassengerRideLiveScreenProps) => {
   const [rideDetails, setRideDetails] = useState<JoinedRidePayload>(ride);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(
-    ride.lat !== null && ride.lng !== null ? { lat: ride.lat, lng: ride.lng } : null
+  const [driverLocation, setDriverLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(
+    ride.lat !== null && ride.lng !== null
+      ? { lat: ride.lat, lng: ride.lng }
+      : null,
   );
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [status, setStatus] = useState("Waiting for driver to join OTP...");
+  const [alerts, setAlerts] = useState<DeviationAlert[]>([]);
+  const [riskLevel, setRiskLevel] = useState<"safe" | "warning" | "danger">(
+    "safe",
+  );
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connecting" | "connected" | "disconnected"
+  >("connecting");
+
+  const liveTripId = useMemo(
+    () => tripId || ride.otpCode,
+    [tripId, ride.otpCode],
+  );
+  const { connect, disconnect, isConnected } = useLiveTracking(
+    liveTripId,
+    "passenger",
+  );
 
   const apiBase = useMemo(() => {
     const configured = import.meta.env.VITE_API_BASE_URL;
@@ -85,6 +116,55 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
     };
   }, [apiBase, ride.otpCode]);
 
+  useEffect(() => {
+    const handleMessage = (event: LiveTrackingEvent) => {
+      if (event.type === "deviation_alert") {
+        const alert: DeviationAlert = {
+          severity: event.severity as "warning" | "danger",
+          message: event.message || "Route deviation detected",
+          location: event.location || {
+            lat: ride.lat ?? 0,
+            lng: ride.lng ?? 0,
+          },
+          riskScore: event.riskScore || 0,
+          trend: event.trend as "closer" | "flat" | "away",
+        };
+
+        setAlerts((prev) => [alert, ...prev].slice(0, 4));
+        setRiskLevel(
+          event.severity === "danger"
+            ? "danger"
+            : event.severity === "warning"
+              ? "warning"
+              : "safe",
+        );
+      }
+
+      if (event.type === "trip_joined") {
+        setConnectionStatus("connected");
+        setStatus("Live route monitoring connected.");
+      }
+    };
+
+    const handleError = () => {
+      setConnectionStatus("disconnected");
+    };
+
+    connect(handleMessage, handleError).catch(() => {
+      setConnectionStatus("disconnected");
+    });
+
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect, ride.lat, ride.lng]);
+
+  useEffect(() => {
+    if (isConnected) {
+      setConnectionStatus("connected");
+    }
+  }, [isConnected]);
+
   const center = driverLocation || { lat: 12.9716, lng: 77.5946 };
 
   return (
@@ -105,17 +185,44 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
           />
-          {driverLocation && <Marker position={[driverLocation.lat, driverLocation.lng]} icon={driverIcon} />}
+          {driverLocation && (
+            <Marker
+              position={[driverLocation.lat, driverLocation.lng]}
+              icon={driverIcon}
+            />
+          )}
         </MapContainer>
       </div>
 
       <div className="absolute inset-x-4 top-4 z-[1000] rounded-3xl border border-white/20 bg-black/60 p-4 text-white backdrop-blur">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">OTP Ride</p>
-        <p className="mt-1 text-xs font-semibold text-primary-foreground/90">OTP: {rideDetails.otpCode}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
+          OTP Ride
+        </p>
+        <p className="mt-1 text-xs font-semibold text-primary-foreground/90">
+          OTP: {rideDetails.otpCode}
+        </p>
+        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-white/80">
+          <span className="rounded-full border border-white/15 bg-white/10 px-2 py-1">
+            {connectionStatus === "connected"
+              ? "Route monitoring active"
+              : "Connecting route monitor..."}
+          </span>
+          <span className="rounded-full border border-white/15 bg-white/10 px-2 py-1">
+            {riskLevel === "danger"
+              ? "Deviation alert"
+              : riskLevel === "warning"
+                ? "Route warning"
+                : "Route clear"}
+          </span>
+        </div>
         <div className="mt-2 flex items-center gap-3">
           <div className="h-14 w-14 overflow-hidden rounded-xl border border-white/20 bg-white/10">
             {rideDetails.faceImage ? (
-              <img src={rideDetails.faceImage} alt="Driver" className="h-full w-full object-cover" />
+              <img
+                src={rideDetails.faceImage}
+                alt="Driver"
+                className="h-full w-full object-cover"
+              />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <UserRound size={24} className="text-white/70" />
@@ -123,24 +230,96 @@ const PassengerRideLiveScreen = ({ ride }: PassengerRideLiveScreenProps) => {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">{rideDetails.driverName}</p>
-            <p className="truncate text-xs text-white/80">{rideDetails.carModel}</p>
-            <p className="truncate text-xs text-white/80">{rideDetails.carNumber}</p>
+            <p className="truncate text-sm font-bold">
+              {rideDetails.driverName}
+            </p>
+            <p className="truncate text-xs text-white/80">
+              {rideDetails.carModel}
+            </p>
+            <p className="truncate text-xs text-white/80">
+              {rideDetails.carNumber}
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="absolute inset-x-4 bottom-4 z-[1000] rounded-3xl border border-border bg-card/95 p-4 text-foreground shadow-xl">
+      <div className="absolute right-4 top-[7.5rem] z-[1001] max-w-[18rem] space-y-2">
+        {alerts.map((alert, index) => (
+          <motion.div
+            key={`${alert.message}-${index}`}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={`rounded-2xl border p-3 text-xs shadow-xl backdrop-blur ${
+              alert.severity === "danger"
+                ? "border-red-300 bg-red-600/90 text-white"
+                : "border-yellow-300 bg-yellow-500/90 text-white"
+            }`}
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="font-bold">
+                  {alert.severity === "danger"
+                    ? "Route deviation"
+                    : "Route warning"}
+                </p>
+                <p className="opacity-95">{alert.message}</p>
+                <p className="mt-1 opacity-75">Risk {alert.riskScore}%</p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="absolute inset-x-4 bottom-24 z-[1000] rounded-3xl border border-border bg-card/95 p-4 text-foreground shadow-xl">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <CarFront size={16} className="text-primary" />
           Driver Live Location
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
           <LocateFixed size={14} className="text-primary" />
-          {driverLocation ? `${driverLocation.lat.toFixed(5)}, ${driverLocation.lng.toFixed(5)}` : "Waiting for GPS..."}
+          {driverLocation
+            ? `${driverLocation.lat.toFixed(5)}, ${driverLocation.lng.toFixed(5)}`
+            : "Waiting for GPS..."}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{status}</p>
-        {updatedAt && <p className="mt-1 text-[11px] text-muted-foreground">Updated: {new Date(updatedAt).toLocaleTimeString()}</p>}
+        {updatedAt && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Updated: {new Date(updatedAt).toLocaleTimeString()}
+          </p>
+        )}
+        <div className="mt-3 flex gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setStatus("Refreshing live status...")}
+          >
+            Refresh
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() =>
+              setAlerts((prev) =>
+                [
+                  {
+                    severity: "warning",
+                    message: "Passenger requested safety check",
+                    location: driverLocation || {
+                      lat: ride.lat ?? 0,
+                      lng: ride.lng ?? 0,
+                    },
+                    riskScore: 0,
+                    trend: "flat",
+                  },
+                  ...prev,
+                ].slice(0, 4),
+              )
+            }
+          >
+            SOS
+          </Button>
+        </div>
       </div>
     </motion.div>
   );

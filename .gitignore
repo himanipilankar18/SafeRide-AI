@@ -58,3 +58,27 @@ Thumbs.db
 *.temp
 *.swp
 *.swo
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# ML data (driver safety)
+driver_safety_system/classification_frames/*.jpg
+driver_safety_system/classification_frames/*.png
+driver_safety_system/classification_frames/*.mp4
+driver_safety_system/classification_frames/**/*.jpg
+driver_safety_system/classification_frames/**/*.png
+driver_safety_system/classification_frames/**/*.mp4
+driver_safety_system/*.jpg
+driver_safety_system/*.png
+driver_safety_system/*.mp4
+
+# Models (driver safety)
+driver_safety_system/*.task
+driver_safety_system/*.pt
+
+# Backup
+backup/

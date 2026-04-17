@@ -29,7 +29,6 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import BottomNav from "@/components/BottomNav";
 import EmergencyAlert from "@/components/EmergencyAlert";
 
 type MapMode = "2d" | "offline";
@@ -82,6 +81,7 @@ interface MonitoringScreenProps {
   onTripChange: (nextTrip: TripConfig) => void;
   hasActiveTrip?: boolean;
   isDriverMode?: boolean;
+  tripId?: string;
 }
 
 const sourcePinIcon = L.divIcon({
@@ -221,6 +221,7 @@ const MonitoringScreen = ({
   onTripChange,
   hasActiveTrip = true,
   isDriverMode = false,
+  tripId,
 }: MonitoringScreenProps) => {
   const [currentLocation, setCurrentLocation] = useState<LatLng>(
     tripConfig.source,
@@ -234,8 +235,8 @@ const MonitoringScreen = ({
   const [followVehicle, setFollowVehicle] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  const tripId = useMemo(() => `trip_${Date.now()}`, []);
-  const { connect, disconnect, send } = useLiveTracking(tripId, "driver");
+  const liveTripId = useMemo(() => tripId || `trip_${Date.now()}`, [tripId]);
+  const { connect, disconnect, send } = useLiveTracking(liveTripId, "driver");
   const watchIdRef = useRef<number | null>(null);
   const lastSendRef = useRef(0);
   const lastDeviationDistanceRef = useRef<number | null>(null);
@@ -589,8 +590,8 @@ const MonitoringScreen = ({
       return;
     }
 
-    const warningThresholdKm = Math.max(0.12, tripConfig.toleranceKm);
-    const dangerThresholdKm = Math.max(0.35, warningThresholdKm * 1.75);
+    const warningThresholdKm = Math.max(0.25, tripConfig.toleranceKm);
+    const dangerThresholdKm = Math.max(0.5, warningThresholdKm * 2);
     const distanceOffRouteKm = getMinRouteDistanceKm(
       currentLocation,
       routeLine,
@@ -1092,7 +1093,8 @@ const MonitoringScreen = ({
         onClose={() => setShowEmergencyAlert(false)}
         payloadBase={{
           passenger: {
-            phoneNumber: window.localStorage.getItem("phoneNumber") || "passenger-demo",
+            phoneNumber:
+              window.localStorage.getItem("phoneNumber") || "passenger-demo",
             name: window.localStorage.getItem("name") || "Passenger",
           },
           driver: {
@@ -1109,9 +1111,7 @@ const MonitoringScreen = ({
         }}
       />
 
-      <div className="absolute inset-x-0 bottom-0 z-[1200]">
-        <BottomNav active="monitoring" onNavigate={onNavigate} />
-      </div>
+      <div className="absolute inset-x-0 bottom-0 z-[1200]"></div>
     </motion.div>
   );
 };

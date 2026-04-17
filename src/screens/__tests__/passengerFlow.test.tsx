@@ -9,7 +9,7 @@ const baseTrip: TripConfig = {
   destinationLabel: "Koramangala, Bangalore",
   source: { lat: 12.9758, lng: 77.6058 },
   destination: { lat: 12.9352, lng: 77.6245 },
-  toleranceKm: 0.3,
+  toleranceKm: 0.25,
   sampleIntervalSec: 5,
 };
 
@@ -40,7 +40,7 @@ describe("passenger trip flow", () => {
         sourceLabel: expect.stringContaining("MG Road"),
         destinationLabel: expect.stringContaining("Koramangala"),
         sampleIntervalSec: 5,
-        toleranceKm: 0.3,
+        toleranceKm: 0.25,
       }),
     );
   });
