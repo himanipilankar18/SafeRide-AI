@@ -10,6 +10,7 @@ import MonitoringScreen from "@/screens/MonitoringScreen";
 import EmergencyScreen from "@/screens/EmergencyScreen";
 import TripSummaryScreen from "@/screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
+import DriverFindGarageScreen from "@/screens/DriverFindGarageScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
 import DriverRideSetupScreen from "@/screens/DriverRideSetupScreen";
@@ -26,6 +27,7 @@ type Screen =
   | "login"
   | "home"
   | "driverVerify"
+  | "findGarage"
   | "driverRideSetup"
   | "passengerJoinRide"
   | "passengerRideLive"
@@ -33,20 +35,6 @@ type Screen =
   | "monitoring"
   | "emergency"
   | "summary";
-
-const NAV_HIDDEN_SCREENS: Screen[] = [
-  "onboarding",
-  "role",
-  "login",
-  "driverVerify",
-];
-const NAV_TABS: Screen[] = [
-  "home",
-  "monitoring",
-  "emergency",
-  "summary",
-  "profile",
-];
 
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("onboarding");
@@ -118,6 +106,9 @@ const Index = () => {
       case "driverRideSetup":
         setScreen("home");
         break;
+      case "findGarage":
+        setScreen("home");
+        break;
       case "passengerJoinRide":
         setScreen("login");
         break;
@@ -147,10 +138,6 @@ const Index = () => {
     setRole(selectedRole);
     setScreen("login");
   };
-
-  const shouldShowBottomNav =
-    Boolean(role) && !NAV_HIDDEN_SCREENS.includes(screen);
-  const activeNavScreen: Screen = NAV_TABS.includes(screen) ? screen : "home";
 
   const renderScreen = () => {
     switch (screen) {
@@ -187,8 +174,7 @@ const Index = () => {
               const done = await checkDriverOnboardingDone(phone);
               setScreen(done ? "driverRideSetup" : "driverVerify");
             }}
-            onOpenRoadsideHelp={() => setScreen("monitoring")}
-            onOpenRegistration={() => setScreen("driverVerify")}
+            onOpenFindGarage={() => setScreen("findGarage")}
           />
         ) : (
           <HomeScreen
@@ -236,6 +222,7 @@ const Index = () => {
 
               setHasActiveTrip(true);
             }}
+            onNavigate={(s) => setScreen(s as Screen)}
           />
         );
       case "driverVerify":
@@ -246,6 +233,13 @@ const Index = () => {
             onVerified={() => {
               setScreen("home");
             }}
+          />
+        );
+      case "findGarage":
+        return (
+          <DriverFindGarageScreen
+            key="driver-find-garage"
+            onBackToHome={() => setScreen("home")}
           />
         );
       case "driverRideSetup":
@@ -344,34 +338,41 @@ const Index = () => {
           <EmergencyScreen
             key="emergency"
             onBack={() => setScreen("monitoring")}
+            onNavigate={(s) => setScreen(s as Screen)}
             tripConfig={tripConfig}
             hasActiveTrip={hasActiveTrip}
           />
         );
       case "summary":
-        return <TripSummaryScreen key="summary" />;
+        return (
+          <TripSummaryScreen
+            key="summary"
+            onNavigate={(s) => setScreen(s as Screen)}
+          />
+        );
     }
   };
 
   return (
     <PhoneFrame showBack={screen !== "onboarding"} onBack={handleBack}>
       <div className="relative h-full">
-        <div className={shouldShowBottomNav ? "h-full pb-[84px]" : "h-full"}>
-          <AnimatePresence mode="wait" initial={false}>
-            {renderScreen()}
-          </AnimatePresence>
-        </div>
+        <AnimatePresence mode="wait" initial={false}>
+          {renderScreen()}
+        </AnimatePresence>
 
-        {shouldShowBottomNav && (
-          <div className="absolute inset-x-0 bottom-0 z-[2000]">
-            <BottomNav
-              active={activeNavScreen}
-              onNavigate={(nextScreen) => {
-                setScreen(nextScreen as Screen);
-              }}
-            />
-          </div>
-        )}
+        {role === "driver" &&
+          ["home", "monitoring", "emergency", "summary", "profile"].includes(
+            screen,
+          ) && (
+            <div className="absolute inset-x-0 bottom-0 z-[2000]">
+              <BottomNav
+                active={screen === "findGarage" ? "monitoring" : screen}
+                onNavigate={(nextScreen) => {
+                  setScreen(nextScreen as Screen);
+                }}
+              />
+            </div>
+          )}
       </div>
     </PhoneFrame>
   );

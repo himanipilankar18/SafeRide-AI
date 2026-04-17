@@ -261,7 +261,7 @@ const DriverMonitoringScreen = ({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-muted-foreground">
-                Roadside Help
+                Find Garage
               </p>
               <p className="text-xs text-muted-foreground">
                 Nearest garages around your current location

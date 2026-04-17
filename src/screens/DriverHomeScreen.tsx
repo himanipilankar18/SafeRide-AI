@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Bell, PlusCircle, UserRound } from "lucide-react";
+import { MapPin, Bell, PlusCircle } from "lucide-react";
 import { Wrench } from "lucide-react";
 import AppLogo from "@/components/AppLogo";
 import { LatLng } from "@/lib/navigationSafety";
@@ -16,8 +16,7 @@ import L from "leaflet";
 
 interface DriverHomeScreenProps {
   onGoOnline: () => void;
-  onOpenRoadsideHelp: () => void;
-  onOpenRegistration: () => void;
+  onOpenFindGarage: () => void;
 }
 
 const deviceLocationIcon = L.divIcon({
@@ -60,8 +59,7 @@ const FollowDevice = ({
 
 const DriverHomeScreen = ({
   onGoOnline,
-  onOpenRoadsideHelp,
-  onOpenRegistration,
+  onOpenFindGarage,
 }: DriverHomeScreenProps) => {
   const fallbackCenter = useMemo<LatLng>(
     () => ({ lat: 12.9716, lng: 77.5946 }),
@@ -206,12 +204,12 @@ const DriverHomeScreen = ({
 
   if (!initialCenter) {
     return (
-      <div className="flex h-full items-center justify-center bg-black text-white">
+      <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_#f3f4f6,_#e5e7eb_65%,_#d1d5db)] text-slate-900">
         <div className="text-center">
-          <div className="mb-3 text-sm uppercase tracking-[0.3em] text-gray-400">
-            Locating device
+          <div className="mb-2 text-[11px] uppercase tracking-[0.28em] text-slate-500">
+            Locating Device
           </div>
-          <div className="text-lg font-semibold">
+          <div className="text-base font-semibold">
             {locationStatus === "loading"
               ? "Getting your GPS position..."
               : "Using fallback location"}
@@ -226,110 +224,104 @@ const DriverHomeScreen = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="relative h-full overflow-hidden bg-black"
+      className="relative h-full overflow-y-auto bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_40%,#eef2f7_100%)]"
     >
-      <div className="absolute inset-0 z-0">
-        <MapContainer
-          center={[initialCenter.lat, initialCenter.lng]}
-          zoom={16}
-          className="h-full w-full"
-          style={{ minHeight: "100%" }}
-          zoomControl={false}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap contributors"
-          />
-          {currentLocation && (
-            <Marker
-              position={[currentLocation.lat, currentLocation.lng]}
-              icon={deviceLocationIcon}
-            />
-          )}
-          {currentLocation && (
-            <FollowDevice
-              position={currentLocation}
-              enabled={shouldFollowMap}
-              onUserPan={() => setShouldFollowMap(false)}
-            />
-          )}
-        </MapContainer>
-        <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/55" />
-      </div>
-
-      <div className="relative z-10 flex items-center justify-between px-6 pt-2 pb-4">
-        <div className="flex items-center gap-2">
-          <AppLogo showText />
-          <p className="text-[10px] text-muted-foreground ml-1">Driver Mode</p>
-        </div>
-        <button className="w-9 h-9 rounded-full bg-card/85 backdrop-blur border border-border flex items-center justify-center">
-          <Bell size={16} className="text-foreground" />
-        </button>
-      </div>
-
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
-        <div className="relative">
-          <div className="w-4 h-4 rounded-full bg-primary border-[3px] border-primary-foreground" />
-          <div className="absolute inset-0 w-4 h-4 rounded-full bg-primary/40 animate-pulse-ring" />
-        </div>
-      </div>
-
-      <div className="absolute bottom-0 left-0 right-0 z-10">
-        <div className="bg-card/90 backdrop-blur-xl rounded-t-3xl px-6 pt-6 pb-20 border-t border-border shadow-[0_-10px_30px_rgba(0,0,0,0.25)]">
-          <div className="flex items-center justify-between mb-5">
-            <div className="text-center">
-              <p className="text-2xl font-extrabold text-foreground">4.9</p>
-              <p className="text-[10px] text-muted-foreground">Rating</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div className="text-center">
-              <p className="text-2xl font-extrabold text-foreground">12</p>
-              <p className="text-[10px] text-muted-foreground">Rides Today</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div className="text-center">
-              <p className="text-2xl font-extrabold text-safe">92</p>
-              <p className="text-[10px] text-muted-foreground">Safety Score</p>
-            </div>
+      <div className="px-5 pt-10 pb-24">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AppLogo showText />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Driver
+            </p>
           </div>
+          <button className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300/80 bg-white/85 shadow-sm backdrop-blur">
+            <Bell size={16} className="text-slate-700" />
+          </button>
+        </div>
 
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <MapPin size={20} className="text-primary" />
+        <div className="relative overflow-hidden rounded-[24px] border border-slate-300/70 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.14)]">
+          <div className="h-52">
+            <MapContainer
+              center={[initialCenter.lat, initialCenter.lng]}
+              zoom={16}
+              className="h-full w-full"
+              style={{ minHeight: "100%" }}
+              zoomControl={false}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution="&copy; OpenStreetMap contributors"
+              />
+              {currentLocation && (
+                <Marker
+                  position={[currentLocation.lat, currentLocation.lng]}
+                  icon={deviceLocationIcon}
+                />
+              )}
+              {currentLocation && (
+                <FollowDevice
+                  position={currentLocation}
+                  enabled={shouldFollowMap}
+                  onUserPan={() => setShouldFollowMap(false)}
+                />
+              )}
+            </MapContainer>
+          </div>
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/25 via-transparent to-transparent" />
+          <div className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur">
+            Map Preview
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_6px_20px_rgba(15,23,42,0.08)]">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+              <MapPin size={18} className="text-emerald-600" />
             </div>
             <div>
-              <p className="font-semibold text-sm text-foreground">
-                Live device location
-              </p>
-              <p className="text-xs text-muted-foreground max-w-[250px] leading-snug break-words">
+              <p className="text-sm font-semibold text-slate-900">Live Device Location</p>
+              <p className="text-xs leading-snug text-slate-500">
                 {currentLocation ? locationLabel : "Waiting for GPS..."}
               </p>
             </div>
           </div>
+        </div>
 
+        <div className="mt-5 space-y-3">
           <button
             onClick={onGoOnline}
-            className="w-full py-4 rounded-2xl bg-safe text-safe-foreground font-bold text-base transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
+            className="group w-full rounded-2xl border border-emerald-400/70 bg-emerald-500 px-4 py-4 text-left text-white shadow-[0_10px_24px_rgba(16,185,129,0.35)] transition-all hover:-translate-y-0.5 active:translate-y-0"
           >
-            <PlusCircle size={20} />
-            Join a Ride
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <PlusCircle size={20} />
+                <div>
+                  <p className="text-base font-extrabold">Join a Ride</p>
+                  <p className="text-xs text-emerald-50">Start accepting nearby ride requests.</p>
+                </div>
+              </div>
+            </div>
           </button>
 
           <button
-            onClick={onOpenRoadsideHelp}
-            className="mt-2 w-full py-3 rounded-2xl border border-border bg-background text-foreground font-semibold text-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
+            onClick={onOpenFindGarage}
+            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-left text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-all hover:-translate-y-0.5 active:translate-y-0"
           >
-            <Wrench size={16} />
-            Roadside Help
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                <Wrench size={18} className="text-slate-700" />
+              </div>
+              <div>
+                <p className="text-base font-bold">Find Garage</p>
+                <p className="text-xs text-slate-500">Open nearby garages and get quick support.</p>
+              </div>
+            </div>
           </button>
+        </div>
 
-          <button
-            onClick={onOpenRegistration}
-            className="mt-2 w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-            <UserRound size={16} />
-            Complete Registration
-          </button>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Support Zone</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">Nearby garages within 5 km are one tap away.</p>
         </div>
       </div>
     </motion.div>

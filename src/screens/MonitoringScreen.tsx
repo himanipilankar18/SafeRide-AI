@@ -781,7 +781,7 @@ const MonitoringScreen = ({
               onClick={() => setShowRoadsidePanel((prev) => !prev)}
               className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-gray-900 shadow-xl"
             >
-              {showRoadsidePanel ? "Hide Help" : "Roadside Help"}
+              {showRoadsidePanel ? "Hide Garage" : "Find Garage"}
             </button>
           )}
           <button
@@ -809,7 +809,7 @@ const MonitoringScreen = ({
         <div className="absolute inset-x-4 top-52 z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
-              Roadside Help{" "}
+              Find Garage{" "}
               {roadsideSource === "offline-cache" ? "(Offline)" : "(Live)"}
             </p>
             <button
