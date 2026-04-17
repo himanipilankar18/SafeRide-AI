@@ -1,0 +1,6 @@
+clip_id,frames_processed,face_detected_frames,face_detection_rate,avg_risk,max_risk,normal_frames,warning_frames,critical_frames,no_face_frames,dominant_state
+P1042762_720,1347,1338,0.9933,13.197,56.568,962,208,168,9,NORMAL
+P1042780_720,234,234,1.0,11.837,38.08,211,23,0,0,NORMAL
+P1043081_720,301,301,1.0,22.331,52.451,154,89,58,0,NORMAL
+P1043086_720,263,263,1.0,18.372,58.791,157,50,56,0,NORMAL
+P1043106_720,357,355,0.9944,16.225,42.421,247,108,0,2,NORMAL

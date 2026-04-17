@@ -9,6 +9,7 @@ import faceRoutes from "./routes/face.js";
 import tripMonitoringRoutes from "./routes/tripMonitoring.js";
 import rideOtpRoutes from "./routes/rideOtp.js";
 import garageRoutes from "./routes/garages.js";
+import emergencyContactsRoutes from "./routes/emergencyContacts.js";
 import { initializeLiveTracking } from "./liveTracking.js";
 import { initDatabase } from "./db/sqlite.js";
 
@@ -34,6 +35,7 @@ app.use("/api/emergency", emergencyRoutes);
 app.use("/api/face", faceRoutes);
 app.use("/api/rides", rideOtpRoutes);
 app.use("/api/garages", garageRoutes);
+app.use("/api/driver", emergencyContactsRoutes);
 app.use("/", tripMonitoringRoutes);
 
 // Health check
