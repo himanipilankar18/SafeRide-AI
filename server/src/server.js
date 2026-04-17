@@ -24,7 +24,7 @@ initializeLiveTracking(httpServer);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 
 // Routes
 app.use("/api/otp", otpRoutes);
@@ -50,6 +50,18 @@ app.use((err, req, res, next) => {
 const bootstrap = async () => {
   const { dbPath } = await initDatabase();
   console.log(`🗄️ SQLite initialized at ${dbPath}`);
+
+  httpServer.once("error", (error) => {
+    if (error?.code === "EADDRINUSE") {
+      console.log(`⚠️ Port ${PORT} is already in use. Another SafeRide backend instance is likely running.`);
+      console.log(`ℹ️ Use the existing instance on http://localhost:${PORT} or stop it before starting a new one.`);
+      process.exit(0);
+      return;
+    }
+
+    console.error("HTTP server startup error:", error);
+    process.exit(1);
+  });
 
   httpServer.listen(PORT, () => {
     console.log(`✅ SafeRide backend running on http://localhost:${PORT}`);

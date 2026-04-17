@@ -11,6 +11,15 @@ import {
 import { LatLng, haversineKm } from "@/lib/navigationSafety";
 import { TripConfig } from "@/screens/HomeScreen";
 import { useLiveTracking } from "@/lib/useLiveTracking";
+import {
+  DistanceEntry,
+  NearbyGarage,
+  NearbyDriver,
+  getNearbyGarages,
+  getDriverIncident,
+  clearDriverIncident,
+  getNearestAvailableDriver,
+} from "@/lib/roadsideSupport";
 import L from "leaflet";
 import {
   MapContainer,
@@ -36,6 +45,11 @@ type DeviationState = {
   riskScore: number;
   trend: "closer" | "flat" | "away";
   message: string;
+};
+
+type DriverIncidentState = {
+  reason: "puncture" | "mechanical";
+  reportedAt: string;
 };
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
@@ -66,6 +80,7 @@ interface MonitoringScreenProps {
   tripConfig: TripConfig;
   onTripChange: (nextTrip: TripConfig) => void;
   hasActiveTrip?: boolean;
+  isDriverMode?: boolean;
 }
 
 const sourcePinIcon = L.divIcon({
@@ -204,6 +219,7 @@ const MonitoringScreen = ({
   tripConfig,
   onTripChange,
   hasActiveTrip = true,
+  isDriverMode = false,
 }: MonitoringScreenProps) => {
   const [currentLocation, setCurrentLocation] = useState<LatLng>(
     tripConfig.source,
@@ -238,6 +254,18 @@ const MonitoringScreen = ({
   const [dispatchStatusType, setDispatchStatusType] = useState<
     "success" | "error" | "info"
   >("info");
+  const [showRoadsidePanel, setShowRoadsidePanel] = useState(false);
+  const [roadsideSource, setRoadsideSource] = useState<
+    "online" | "offline-cache"
+  >("online");
+  const [nearbyGarages, setNearbyGarages] = useState<
+    DistanceEntry<NearbyGarage>[]
+  >([]);
+  const [driverIncident, setDriverIncident] =
+    useState<DriverIncidentState | null>(null);
+  const [replacementDriver, setReplacementDriver] =
+    useState<NearbyDriver | null>(null);
+  const [isFindingReplacement, setIsFindingReplacement] = useState(false);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -245,6 +273,28 @@ const MonitoringScreen = ({
   const selectedContacts = emergencyContacts.filter((contact) =>
     selectedContactIds.includes(contact.id),
   );
+
+  useEffect(() => {
+    if (!isDriverMode) {
+      setNearbyGarages([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadGarages = async () => {
+      const { garages, source } = await getNearbyGarages(currentLocation, 3);
+      if (cancelled) return;
+      setNearbyGarages(garages);
+      setRoadsideSource(source);
+    };
+
+    loadGarages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation, isDriverMode]);
 
   const toggleContactSelection = (contactId: string) => {
     setSelectedContactIds((prev) =>
@@ -323,6 +373,40 @@ const MonitoringScreen = ({
     }
   };
 
+  const handleScheduleReplacementRide = () => {
+    setIsFindingReplacement(true);
+
+    try {
+      const nearest = getNearestAvailableDriver(currentLocation);
+      if (!nearest) {
+        throw new Error("No nearby driver found right now.");
+      }
+
+      setReplacementDriver(nearest.item);
+      onTripChange({
+        ...tripConfig,
+        driverName: nearest.item.name,
+        driverPhone: nearest.item.phone,
+        driverVehicleDetails: nearest.item.vehicle,
+      });
+      setDispatchStatus(
+        `Replacement ride scheduled with ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km away).`,
+      );
+      setDispatchStatusType("success");
+      clearDriverIncident();
+      setDriverIncident(null);
+    } catch (error) {
+      setDispatchStatus(
+        error instanceof Error
+          ? error.message
+          : "Unable to schedule replacement ride.",
+      );
+      setDispatchStatusType("error");
+    } finally {
+      setIsFindingReplacement(false);
+    }
+  };
+
   useEffect(() => {
     connect(
       (event) => {
@@ -382,6 +466,31 @@ const MonitoringScreen = ({
       setEmergencyContacts([]);
       setSelectedContactIds([]);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncIncident = () => {
+      const record = getDriverIncident();
+      if (!record) {
+        setDriverIncident(null);
+        return;
+      }
+
+      setDriverIncident({
+        reason: record.reason,
+        reportedAt: record.reportedAt,
+      });
+      setShowDeviationPanel(true);
+    };
+
+    syncIncident();
+
+    window.addEventListener("storage", syncIncident);
+    window.addEventListener("saferide-driver-incident", syncIncident);
+    return () => {
+      window.removeEventListener("storage", syncIncident);
+      window.removeEventListener("saferide-driver-incident", syncIncident);
+    };
   }, []);
 
   useEffect(() => {
@@ -667,6 +776,15 @@ const MonitoringScreen = ({
 
       {hasActiveTrip && (
         <div className="absolute right-4 top-36 z-[1000] flex flex-col gap-3">
+          {isDriverMode && (
+            <button
+              type="button"
+              onClick={() => setShowRoadsidePanel((prev) => !prev)}
+              className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-gray-900 shadow-xl"
+            >
+              {showRoadsidePanel ? "Hide Help" : "Roadside Help"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -688,130 +806,242 @@ const MonitoringScreen = ({
         </div>
       )}
 
-      {hasActiveTrip && deviationState && showDeviationPanel && (
-        <div className="absolute inset-x-4 bottom-[7.25rem] z-[1150] rounded-2xl border border-red-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-red-600">
-                Route Deviation{" "}
-                {deviationState.severity === "danger" ? "Detected" : "Warning"}
-              </p>
-              <p className="mt-1 text-sm font-semibold">
-                {deviationState.message}
-              </p>
-              <p className="mt-1 text-xs text-gray-600">
-                Off route: {deviationState.distanceOffRouteKm.toFixed(2)} km |
-                Risk: {deviationState.riskScore}%
-              </p>
-            </div>
+      {hasActiveTrip && isDriverMode && showRoadsidePanel && (
+        <div className="absolute inset-x-4 top-52 z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
+              Roadside Help{" "}
+              {roadsideSource === "offline-cache" ? "(Offline)" : "(Live)"}
+            </p>
             <button
               type="button"
-              onClick={() => setShowDeviationPanel(false)}
+              onClick={() => setShowRoadsidePanel(false)}
               className="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
             >
-              Hide
+              Close
             </button>
           </div>
+          <p className="mt-1 text-xs text-gray-600">
+            Nearest garages with phone and location.
+          </p>
 
-          <div className="mt-3 rounded-xl bg-gray-50 p-3">
-            <p className="text-xs font-semibold text-gray-700">
-              Who should be notified?
-            </p>
-
-            <div className="mt-2 space-y-2">
-              {emergencyContacts.length === 0 ? (
-                <p className="text-xs text-gray-500">
-                  No emergency contacts found. Add them in the SOS screen.
-                </p>
-              ) : (
-                emergencyContacts.map((contact) => (
-                  <label
-                    key={contact.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold text-gray-800">
-                        {contact.name}
-                      </p>
-                      <p className="truncate text-[11px] text-gray-500">
-                        {contact.phone} (SMS)
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={selectedContactIds.includes(contact.id)}
-                      onChange={() => toggleContactSelection(contact.id)}
-                    />
-                  </label>
-                ))
-              )}
-
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div>
-                  <p className="text-xs font-semibold text-gray-800">
-                    Police Control Room
-                  </p>
-                  <p className="text-[11px] text-gray-500">
-                    {POLICE_CONTACT.phone} (SMS)
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={contactPolice}
-                  onChange={() => setContactPolice((prev) => !prev)}
-                />
-              </label>
-            </div>
-          </div>
-
-          {dispatchStatus && (
-            <div
-              className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
-                dispatchStatusType === "success"
-                  ? "bg-green-100 text-green-700"
-                  : dispatchStatusType === "error"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              {dispatchStatus}
-            </div>
-          )}
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleDispatchEmergency}
-              disabled={isDispatchingEmergency}
-              className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
-            >
-              {isDispatchingEmergency ? "Sending..." : "Send Emergency Alert"}
-            </button>
-            <button
-              type="button"
-              onClick={() => callNumber(POLICE_CONTACT.phone)}
-              className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700"
-            >
-              Call Police
-            </button>
-          </div>
-
-          {selectedContacts.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {selectedContacts.map((contact) => (
-                <button
-                  key={`call-${contact.id}`}
-                  type="button"
-                  onClick={() => callNumber(contact.phone)}
-                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700"
+          <div className="mt-2 space-y-2">
+            {nearbyGarages.length === 0 ? (
+              <p className="text-xs text-gray-500">Finding nearby garages...</p>
+            ) : (
+              nearbyGarages.map((garage) => (
+                <div
+                  key={garage.item.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
                 >
-                  Call {contact.name}
-                </button>
-              ))}
-            </div>
-          )}
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-gray-800">
+                      {garage.item.name}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {garage.item.phone}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {garage.item.location.lat.toFixed(5)},{" "}
+                      {garage.item.location.lng.toFixed(5)}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {garage.distanceKm.toFixed(1)} km away
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => callNumber(garage.item.phone)}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700"
+                  >
+                    Call
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
+
+      {hasActiveTrip &&
+        showDeviationPanel &&
+        (deviationState || driverIncident) && (
+          <div className="absolute inset-x-4 bottom-[7.25rem] z-[1150] rounded-2xl border border-red-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-red-600">
+                  {deviationState
+                    ? `Route Deviation ${deviationState.severity === "danger" ? "Detected" : "Warning"}`
+                    : "Driver Vehicle Issue Reported"}
+                </p>
+                <p className="mt-1 text-sm font-semibold">
+                  {deviationState
+                    ? deviationState.message
+                    : "Your current driver reported a puncture/mechanical issue. We can schedule a replacement ride."}
+                </p>
+                {deviationState && (
+                  <p className="mt-1 text-xs text-gray-600">
+                    Off route: {deviationState.distanceOffRouteKm.toFixed(2)} km
+                    | Risk: {deviationState.riskScore}%
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeviationPanel(false)}
+                className="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
+              >
+                Hide
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-xl bg-gray-50 p-3">
+              <p className="text-xs font-semibold text-gray-700">
+                Who should be notified?
+              </p>
+
+              <div className="mt-2 space-y-2">
+                {emergencyContacts.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    No emergency contacts found. Add them in the SOS screen.
+                  </p>
+                ) : (
+                  emergencyContacts.map((contact) => (
+                    <label
+                      key={contact.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-gray-800">
+                          {contact.name}
+                        </p>
+                        <p className="truncate text-[11px] text-gray-500">
+                          {contact.phone} (SMS)
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={selectedContactIds.includes(contact.id)}
+                        onChange={() => toggleContactSelection(contact.id)}
+                      />
+                    </label>
+                  ))
+                )}
+
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">
+                      Police Control Room
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      {POLICE_CONTACT.phone} (SMS)
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={contactPolice}
+                    onChange={() => setContactPolice((prev) => !prev)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {dispatchStatus && (
+              <div
+                className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
+                  dispatchStatusType === "success"
+                    ? "bg-green-100 text-green-700"
+                    : dispatchStatusType === "error"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-gray-100 text-gray-700"
+                }`}
+              >
+                {dispatchStatus}
+              </div>
+            )}
+
+            {driverIncident && (
+              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
+                  Driver reported vehicle issue
+                </p>
+                <p className="mt-1 text-xs font-medium text-amber-800">
+                  Reason:{" "}
+                  {driverIncident.reason === "puncture"
+                    ? "Tyre puncture"
+                    : "Mechanical issue"}
+                </p>
+                <p className="text-[11px] text-amber-700">
+                  Passenger safety mode: schedule a replacement driver.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleScheduleReplacementRide}
+                  disabled={isFindingReplacement}
+                  className="mt-2 w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                >
+                  {isFindingReplacement
+                    ? "Finding nearest driver..."
+                    : "Schedule New Ride with Nearest Driver"}
+                </button>
+              </div>
+            )}
+
+            {replacementDriver && (
+              <div className="mt-2 rounded-xl border border-green-200 bg-green-50 p-3">
+                <p className="text-xs font-bold text-green-700">
+                  Replacement Driver Assigned
+                </p>
+                <p className="mt-1 text-xs font-semibold text-green-800">
+                  {replacementDriver.name} · {replacementDriver.vehicle}
+                </p>
+                <p className="text-[11px] text-green-700">
+                  {replacementDriver.phone}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => callNumber(replacementDriver.phone)}
+                  className="mt-2 rounded-lg border border-green-300 bg-white px-3 py-1.5 text-[11px] font-bold text-green-700"
+                >
+                  Call Replacement Driver
+                </button>
+              </div>
+            )}
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleDispatchEmergency}
+                disabled={isDispatchingEmergency}
+                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+              >
+                {isDispatchingEmergency ? "Sending..." : "Send Emergency Alert"}
+              </button>
+              <button
+                type="button"
+                onClick={() => callNumber(POLICE_CONTACT.phone)}
+                className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700"
+              >
+                Call Police
+              </button>
+            </div>
+
+            {selectedContacts.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedContacts.map((contact) => (
+                  <button
+                    key={`call-${contact.id}`}
+                    type="button"
+                    onClick={() => callNumber(contact.phone)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700"
+                  >
+                    Call {contact.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
       {!hasActiveTrip ? (
         <EmptyRideState onNavigate={onNavigate} />

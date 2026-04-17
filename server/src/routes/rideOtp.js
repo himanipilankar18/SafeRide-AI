@@ -3,7 +3,7 @@ import {
   createRideOtp,
   getRideByOtp,
   getRideOtpPassengerView,
-  joinRideByOtp,
+  joinRideByOtpAsDriver,
   updateRideOtpLocation,
 } from "../db/sqlite.js";
 
@@ -26,16 +26,17 @@ router.post(
   "/create",
   asyncHandler(async (req, res) => {
     const {
-      driverPhone,
+      passengerPhone,
       sourceLabel,
       destinationLabel,
       startLocation,
+      destinationLocation,
     } = req.body || {};
 
-    if (!driverPhone) {
+    if (!passengerPhone) {
       return res.status(400).json({
         success: false,
-        message: "driverPhone is required",
+        message: "passengerPhone is required",
       });
     }
 
@@ -50,11 +51,14 @@ router.post(
       if (!existing) {
         ride = await createRideOtp({
           otpCode,
-          driverPhone,
+          driverPhone: "UNASSIGNED_DRIVER",
+          passengerPhone,
           sourceLabel: sourceLabel || null,
           destinationLabel: destinationLabel || null,
           startLat: startLocation?.lat ?? null,
           startLng: startLocation?.lng ?? null,
+          endLat: destinationLocation?.lat ?? null,
+          endLng: destinationLocation?.lng ?? null,
         });
       }
 
@@ -73,20 +77,20 @@ router.post(
 );
 
 router.post(
-  "/join",
+  "/join-driver",
   asyncHandler(async (req, res) => {
-    const { otpCode, passengerPhone } = req.body || {};
+    const { otpCode, driverPhone } = req.body || {};
 
-    if (!otpCode || !passengerPhone) {
+    if (!otpCode || !driverPhone) {
       return res.status(400).json({
         success: false,
-        message: "otpCode and passengerPhone are required",
+        message: "otpCode and driverPhone are required",
       });
     }
 
-    const ride = await joinRideByOtp({
+    const ride = await joinRideByOtpAsDriver({
       otpCode: String(otpCode).trim(),
-      passengerPhone,
+      driverPhone,
     });
 
     const passengerView = await getRideOtpPassengerView(ride.otp_code);

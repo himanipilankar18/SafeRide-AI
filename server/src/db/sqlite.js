@@ -154,6 +154,8 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
       destination_label TEXT,
       start_lat REAL,
       start_lng REAL,
+      end_lat REAL,
+      end_lng REAL,
       current_lat REAL,
       current_lng REAL,
       location_updated_at TEXT,
@@ -161,6 +163,22 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
       updated_at TEXT NOT NULL
     )
   `);
+
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN end_lat REAL`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN end_lng REAL`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
 
   await runQuery(`
     CREATE INDEX IF NOT EXISTS idx_ride_otps_status_created
@@ -488,14 +506,17 @@ export const getDriverOnboardingByPhone = async (phone) => {
 
 export const createRideOtp = async ({
   otpCode,
-  driverPhone,
+  driverPhone = "UNASSIGNED_DRIVER",
+  passengerPhone = null,
   sourceLabel = null,
   destinationLabel = null,
   startLat = null,
   startLng = null,
+  endLat = null,
+  endLng = null,
 }) => {
-  if (!otpCode || !driverPhone) {
-    throw new Error("createRideOtp requires otpCode and driverPhone");
+  if (!otpCode) {
+    throw new Error("createRideOtp requires otpCode");
   }
 
   const timestamp = nowIso();
@@ -504,24 +525,30 @@ export const createRideOtp = async ({
     `INSERT INTO ride_otps (
       otp_code,
       driver_phone,
+      passenger_phone,
       source_label,
       destination_label,
       start_lat,
       start_lng,
+      end_lat,
+      end_lng,
       current_lat,
       current_lng,
       location_updated_at,
       status,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?)`,
     [
       String(otpCode),
       String(driverPhone),
+      passengerPhone ? String(passengerPhone) : null,
       sourceLabel,
       destinationLabel,
       startLat,
       startLng,
+      endLat,
+      endLng,
       startLat,
       startLng,
       timestamp,
@@ -565,6 +592,30 @@ export const joinRideByOtp = async ({ otpCode, passengerPhone }) => {
   return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
 };
 
+export const joinRideByOtpAsDriver = async ({ otpCode, driverPhone }) => {
+  if (!otpCode || !driverPhone) {
+    throw new Error("joinRideByOtpAsDriver requires otpCode and driverPhone");
+  }
+
+  const ride = await getRideByOtp(otpCode);
+  if (!ride) {
+    throw new Error("Invalid OTP");
+  }
+
+  if (ride.status !== "waiting" && ride.status !== "active") {
+    throw new Error("This ride OTP is no longer active");
+  }
+
+  await runQuery(
+    `UPDATE ride_otps
+     SET driver_phone = ?, status = 'active', updated_at = ?
+     WHERE otp_code = ?`,
+    [String(driverPhone), nowIso(), String(otpCode)]
+  );
+
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+};
+
 export const updateRideOtpLocation = async ({ otpCode, lat, lng, timestamp = nowIso() }) => {
   if (!otpCode || lat === undefined || lng === undefined) {
     throw new Error("updateRideOtpLocation requires otpCode, lat, and lng");
@@ -596,6 +647,8 @@ export const getRideOtpPassengerView = async (otpCode) => {
       r.destination_label,
       r.start_lat,
       r.start_lng,
+      r.end_lat,
+      r.end_lng,
       r.current_lat,
       r.current_lng,
       r.location_updated_at,
