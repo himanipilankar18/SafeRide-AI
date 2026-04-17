@@ -204,6 +204,30 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
     }
   }
 
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN completed_at TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN behavior_score REAL`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE ride_otps ADD COLUMN drowsiness_summary TEXT`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
   await runQuery(`
     CREATE INDEX IF NOT EXISTS idx_ride_otps_status_created
     ON ride_otps (status, created_at)
@@ -869,6 +893,9 @@ export const getRideOtpPassengerView = async (otpCode) => {
       r.current_lat,
       r.current_lng,
       r.location_updated_at,
+      r.completed_at,
+      r.behavior_score,
+      r.drowsiness_summary,
       d.driver_name,
       d.car_number,
       d.car_model,
@@ -1041,6 +1068,54 @@ export const getRideSummariesByDriverPhone = async (driverPhone) => {
      ORDER BY ended_at DESC`,
     [String(driverPhone)],
   );
+};
+
+export const completeRideOtpByCode = async ({
+  otpCode,
+  lat = null,
+  lng = null,
+  completedAt = nowIso(),
+  behaviorScore = null,
+  drowsinessSummary = null,
+}) => {
+  if (!otpCode) {
+    throw new Error("completeRideOtpByCode requires otpCode");
+  }
+
+  const existing = await getRideByOtp(otpCode);
+  if (!existing) {
+    throw new Error("Invalid OTP");
+  }
+
+  const normalizedScore =
+    behaviorScore === null || behaviorScore === undefined
+      ? null
+      : Number(behaviorScore);
+
+  await runQuery(
+    `UPDATE ride_otps
+     SET status = 'completed',
+         current_lat = COALESCE(?, current_lat),
+         current_lng = COALESCE(?, current_lng),
+         location_updated_at = ?,
+         completed_at = ?,
+         behavior_score = ?,
+         drowsiness_summary = ?,
+         updated_at = ?
+     WHERE otp_code = ?`,
+    [
+      lat,
+      lng,
+      completedAt,
+      completedAt,
+      Number.isFinite(normalizedScore) ? normalizedScore : null,
+      drowsinessSummary ? JSON.stringify(drowsinessSummary) : null,
+      nowIso(),
+      String(otpCode),
+    ]
+  );
+
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
 };
 
 export const startTrip = async ({

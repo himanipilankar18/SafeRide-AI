@@ -29,6 +29,10 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import EmergencyAlert from "@/components/EmergencyAlert";
+import DriverDrowsinessPanel, {
+  type DrowsinessSample,
+  type DrowsinessState,
+} from "@/components/DriverDrowsinessPanel";
 
 type MapMode = "2d" | "offline";
 
@@ -52,7 +56,33 @@ type DriverIncidentState = {
 };
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
+const DRIVER_LAST_RIDE_SCORE_KEY = "saferide_driver_last_ride_score";
 const POLICE_CONTACT = { name: "Police Control Room", phone: "+91112" };
+
+type DriverScoreAggregate = {
+  samples: number;
+  sumFatigue: number;
+  sumDistraction: number;
+  stateCounts: Record<DrowsinessState, number>;
+  warningAlerts: number;
+  criticalAlerts: number;
+};
+
+const emptyDriverAggregate = (): DriverScoreAggregate => ({
+  samples: 0,
+  sumFatigue: 0,
+  sumDistraction: 0,
+  stateCounts: {
+    NORMAL: 0,
+    WARNING: 0,
+    CRITICAL: 0,
+  },
+  warningAlerts: 0,
+  criticalAlerts: 0,
+});
+
+const clampPercent = (value: number) =>
+  Math.max(0, Math.min(100, Math.round(value)));
 
 const screenTransition = {
   duration: 0.66,
@@ -272,6 +302,16 @@ const MonitoringScreen = ({
   >([]);
   const [isFindingReplacement, setIsFindingReplacement] = useState(false);
   const [showEmergencyAlert, setShowEmergencyAlert] = useState(false);
+  const [latestDrowsinessSample, setLatestDrowsinessSample] =
+    useState<DrowsinessSample | null>(null);
+  const [driverBehaviorScore, setDriverBehaviorScore] = useState(100);
+  const [didAutoCompleteRide, setDidAutoCompleteRide] = useState(false);
+
+  const drowsinessAggregateRef = useRef<DriverScoreAggregate>(
+    emptyDriverAggregate(),
+  );
+  const lastDrowsinessStateRef = useRef<DrowsinessState | null>(null);
+  const completionTriggeredRef = useRef(false);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -279,6 +319,119 @@ const MonitoringScreen = ({
   const selectedContacts = emergencyContacts.filter((contact) =>
     selectedContactIds.includes(contact.id),
   );
+
+  const computeScoreSnapshot = () => {
+    const agg = drowsinessAggregateRef.current;
+    const samples = Math.max(agg.samples, 1);
+    const avgFatigue = agg.sumFatigue / samples;
+    const avgDistraction = agg.sumDistraction / samples;
+    const warningRatio = agg.stateCounts.WARNING / samples;
+    const criticalRatio = agg.stateCounts.CRITICAL / samples;
+
+    const score = clampPercent(
+      100 -
+        avgFatigue * 38 -
+        avgDistraction * 30 -
+        warningRatio * 42 -
+        criticalRatio * 70 -
+        agg.warningAlerts * 2 -
+        agg.criticalAlerts * 4,
+    );
+
+    return {
+      score,
+      avgFatigue: Number(avgFatigue.toFixed(4)),
+      avgDistraction: Number(avgDistraction.toFixed(4)),
+      warningEvents: agg.stateCounts.WARNING,
+      criticalEvents: agg.stateCounts.CRITICAL,
+      totalSamples: agg.samples,
+      warningAlerts: agg.warningAlerts,
+      criticalAlerts: agg.criticalAlerts,
+    };
+  };
+
+  const handleDrowsinessSample = (sample: DrowsinessSample) => {
+    setLatestDrowsinessSample(sample);
+
+    const agg = drowsinessAggregateRef.current;
+    agg.samples += 1;
+    agg.sumFatigue += sample.fatigueScore;
+    agg.sumDistraction += sample.distractionScore;
+    agg.stateCounts[sample.state] += 1;
+
+    const prevState = lastDrowsinessStateRef.current;
+    if (prevState !== sample.state) {
+      if (sample.state === "WARNING") {
+        agg.warningAlerts += 1;
+      }
+      if (sample.state === "CRITICAL") {
+        agg.criticalAlerts += 1;
+      }
+    }
+    lastDrowsinessStateRef.current = sample.state;
+
+    const scoreSnapshot = computeScoreSnapshot();
+    setDriverBehaviorScore(scoreSnapshot.score);
+  };
+
+  const finalizeDriverRide = async (
+    reason: "destination_reached" | "manual",
+  ) => {
+    if (completionTriggeredRef.current || !isDriverMode) {
+      return;
+    }
+
+    completionTriggeredRef.current = true;
+
+    const scoreSnapshot = computeScoreSnapshot();
+    const summaryPayload = {
+      completedAt: new Date().toISOString(),
+      rideOtpCode: tripConfig.rideOtpCode || null,
+      destinationLabel: tripConfig.destinationLabel,
+      sourceLabel: tripConfig.sourceLabel,
+      reason,
+      ...scoreSnapshot,
+    };
+
+    setDriverBehaviorScore(scoreSnapshot.score);
+    setDidAutoCompleteRide(reason === "destination_reached");
+
+    try {
+      window.localStorage.setItem(
+        DRIVER_LAST_RIDE_SCORE_KEY,
+        JSON.stringify(summaryPayload),
+      );
+    } catch {
+      // no-op if storage is blocked
+    }
+
+    if (tripConfig.rideOtpCode) {
+      try {
+        await fetch(`${API_BASE_URL}/rides/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            otpCode: tripConfig.rideOtpCode,
+            lat: currentLocation.lat,
+            lng: currentLocation.lng,
+            completedAt: summaryPayload.completedAt,
+            behaviorScore: scoreSnapshot.score,
+            drowsinessSummary: summaryPayload,
+          }),
+        });
+      } catch {
+        // Completion sync is best-effort; local summary remains available.
+      }
+    }
+
+    send("trip_complete", {
+      reason,
+      behaviorScore: scoreSnapshot.score,
+      drowsiness: summaryPayload,
+    });
+
+    onNavigate("summary");
+  };
 
   useEffect(() => {
     if (!isDriverMode) {
@@ -747,6 +900,9 @@ const MonitoringScreen = ({
     currentLocation,
     tripConfig.destination,
   );
+  const destinationReachedThresholdKm = Math.max(0.12, tripConfig.toleranceKm);
+  const isNearDestination =
+    distanceToDestination <= destinationReachedThresholdKm;
   const etaMinutes = Math.max(1, Math.round(distanceToDestination * 3.2));
   const routeLine = (
     expectedRoute.length > 0
@@ -758,12 +914,64 @@ const MonitoringScreen = ({
   ) as [number, number][];
 
   useEffect(() => {
-    if (
-      !hasActiveTrip ||
-      mode === "offline" ||
-      routeLine.length === 0 ||
-      !isDriverMode
-    ) {
+    if (!hasActiveTrip || !isDriverMode || !tripConfig.rideOtpCode) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pushLocation = async () => {
+      try {
+        await fetch(`${API_BASE_URL}/rides/location`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            otpCode: tripConfig.rideOtpCode,
+            lat: currentLocation.lat,
+            lng: currentLocation.lng,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+      } catch {
+        // Best-effort sync for passenger live status polling.
+      }
+    };
+
+    pushLocation();
+
+    const intervalId = window.setInterval(
+      () => {
+        if (!cancelled) {
+          pushLocation();
+        }
+      },
+      Math.max(2500, tripConfig.sampleIntervalSec * 1000),
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    API_BASE_URL,
+    currentLocation.lat,
+    currentLocation.lng,
+    hasActiveTrip,
+    isDriverMode,
+    tripConfig.rideOtpCode,
+    tripConfig.sampleIntervalSec,
+  ]);
+
+  useEffect(() => {
+    if (!hasActiveTrip || !isDriverMode || !isNearDestination) {
+      return;
+    }
+
+    finalizeDriverRide("destination_reached");
+  }, [finalizeDriverRide, hasActiveTrip, isDriverMode, isNearDestination]);
+
+  useEffect(() => {
+    if (!hasActiveTrip || mode === "offline" || routeLine.length === 0) {
       setDeviationState(null);
       return;
     }
@@ -981,15 +1189,40 @@ const MonitoringScreen = ({
         </div>
       )}
 
+      {hasActiveTrip && isDriverMode && (
+        <div className="absolute left-4 right-4 top-52 z-[1080]">
+          <div className="mb-2 rounded-xl border border-white/25 bg-black/55 px-3 py-2 text-white shadow-lg backdrop-blur">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
+              Driver Ride Safety Score
+            </p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold">{driverBehaviorScore}/100</p>
+              <p className="text-[11px] font-medium text-white/80">
+                {latestDrowsinessSample?.state || "NORMAL"}
+              </p>
+            </div>
+            {didAutoCompleteRide && (
+              <p className="mt-1 text-[11px] font-semibold text-emerald-200">
+                Destination reached. Ride completion synced.
+              </p>
+            )}
+          </div>
+          <DriverDrowsinessPanel
+            active={hasActiveTrip && isDriverMode}
+            onSample={handleDrowsinessSample}
+          />
+        </div>
+      )}
+
       {hasActiveTrip && locationError && (
-        <div className="absolute left-4 right-4 top-52 z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
+        <div className="absolute left-4 right-4 top-[31rem] z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
           <AlertTriangle size={14} className="mr-2 inline" />
           {locationError}
         </div>
       )}
 
       {hasActiveTrip && isDriverMode && showRoadsidePanel && (
-        <div className="absolute inset-x-4 top-52 z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
+        <div className="absolute inset-x-4 top-[31rem] z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
               Find Garage{" "}
@@ -1276,7 +1509,13 @@ const MonitoringScreen = ({
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={() => onNavigate("home")}
+              onClick={() => {
+                if (isDriverMode) {
+                  finalizeDriverRide("manual");
+                  return;
+                }
+                onNavigate("home");
+              }}
               className="grid h-11 w-11 place-items-center rounded-full border border-gray-200 text-gray-700"
               aria-label="Close ride"
             >

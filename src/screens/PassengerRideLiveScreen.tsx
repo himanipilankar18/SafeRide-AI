@@ -38,6 +38,14 @@ interface PassengerRideLiveScreenProps {
   }) => Promise<void> | void;
 }
 
+type EmergencyContact = {
+  name: string;
+  phone: string;
+  selectedForSos?: boolean;
+};
+
+const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
+
 const driverIcon = L.divIcon({
   className: "",
   html: '<div style="width:18px;height:18px;border-radius:9999px;background:#16a34a;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);"></div>',
@@ -362,47 +370,49 @@ const PassengerRideLiveScreen = ({
     }
 
     setIsEndingTrip(true);
-    try {
-      const finalLocation = driverLocation;
-      const distanceKm =
-        sourceLocation && destinationLocation
-          ? haversineKm(sourceLocation, destinationLocation)
-          : 0;
-      const durationSec = Math.max(
-        1,
-        Math.round((Date.now() - startTimeRef.current) / 1000),
-      );
-      const deviationAlerts = alerts.filter(
-        (alert) => alert.severity === "warning" || alert.severity === "danger",
-      ).length;
-      const averageSpeedKmph =
-        durationSec > 0
-          ? Number(((distanceKm / durationSec) * 3600).toFixed(1))
-          : 0;
-      const safetyScore = Math.max(0, 100 - deviationAlerts * 8);
-      const routeAdherencePercent = Math.max(
-        0,
-        Math.min(100, 100 - deviationAlerts * 12),
-      );
-
-      await onEndTrip({
-        otpCode: ride.otpCode,
-        finalLocation,
-        distanceKm,
-        durationSec,
-        driverPerformance: {
-          safetyScore,
-          deviationAlerts,
-          averageSpeedKmph,
-          routeAdherencePercent,
-          durationSec,
-          distanceKm,
-        },
+          : null;
+      const location = driverLocation || fallbackLocation;
+      const response = await fetch(`${apiBase}/emergency/alert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contacts,
+          passenger: {
+            phoneNumber: passengerPhone,
+          },
+          driver: {
+            name: rideDetails.driverName,
+            phoneNumber: "N/A",
+            vehicleDetails: `${rideDetails.carModel} (${rideDetails.carNumber})`,
+          },
+          trip: {
+            sourceLabel: "Live trip",
+            destinationLabel: "Destination",
+          },
+          location,
+          timestamp: new Date().toISOString(),
+        }),
       });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to send SOS alerts");
+      }
+
+      setSosStatus(data.message || "SOS alerts sent.");
+      setSosStatusType("success");
+    } catch (error) {
+      setSosStatus(
+        error instanceof Error ? error.message : "Failed to send SOS alerts.",
+      );
+      setSosStatusType("error");
     } finally {
-      setIsEndingTrip(false);
+      setIsSendingSos(false);
     }
   };
+
+  const center = driverLocation || { lat: 12.9716, lng: 77.5946 };
+>>>>>>> 4728d6f93291b966dfcb0f0b177b94f895875175
 
   return (
     <motion.div

@@ -305,6 +305,8 @@ const Index = () => {
             onJoinedRide={(ride) => {
               setActiveTripId(ride.otpCode);
               setDriverJoinedRideTrip({
+                rideId: ride.rideId,
+                rideOtpCode: ride.otpCode,
                 sourceLabel: ride.sourceLabel,
                 destinationLabel: ride.destinationLabel,
                 source: ride.source,

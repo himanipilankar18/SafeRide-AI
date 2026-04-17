@@ -33,6 +33,7 @@ type EmergencyContact = {
   id: string;
   name: string;
   phone: string;
+  selectedForSos: boolean;
 };
 
 const normalizePhoneNumber = (value: string) => {
@@ -114,9 +115,24 @@ const EmergencyScreen = ({
     try {
       const saved = window.localStorage.getItem(EMERGENCY_CONTACTS_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved) as EmergencyContact[];
+        const parsed = JSON.parse(saved) as Array<
+          Partial<EmergencyContact> & { name?: string; phone?: string }
+        >;
         if (Array.isArray(parsed)) {
-          setContacts(parsed);
+          setContacts(
+            parsed.map((contact, index) => ({
+              id:
+                typeof contact.id === "string" && contact.id.trim()
+                  ? contact.id
+                  : `${Date.now()}-${index}-${String(contact.phone || "contact")}`,
+              name: String(contact.name || "Emergency contact").trim(),
+              phone: String(contact.phone || "").trim(),
+              selectedForSos:
+                typeof contact.selectedForSos === "boolean"
+                  ? contact.selectedForSos
+                  : true,
+            })),
+          );
         }
       }
     } catch {
@@ -209,6 +225,7 @@ const EmergencyScreen = ({
         id: `${Date.now()}-${phone}`,
         name,
         phone,
+        selectedForSos: true,
       },
     ]);
     setContactName("");
@@ -220,9 +237,26 @@ const EmergencyScreen = ({
     saveContacts(contacts.filter((contact) => contact.id !== id));
   };
 
+  const toggleContactSelection = (id: string) => {
+    saveContacts(
+      contacts.map((contact) =>
+        contact.id === id
+          ? { ...contact, selectedForSos: !contact.selectedForSos }
+          : contact,
+      ),
+    );
+  };
+
   const sendEmergencyAlert = async () => {
     if (contacts.length === 0) {
       setAlertStatus("Add at least one emergency contact first.");
+      setAlertStatusType("error");
+      return;
+    }
+
+    const selectedContacts = contacts.filter((contact) => contact.selectedForSos);
+    if (selectedContacts.length === 0) {
+      setAlertStatus("Select at least one contact for SOS alerts.");
       setAlertStatusType("error");
       return;
     }
@@ -246,7 +280,7 @@ const EmergencyScreen = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contacts,
+          contacts: selectedContacts,
           passenger: {
             phoneNumber: passengerPhone,
           },
@@ -555,7 +589,7 @@ const EmergencyScreen = ({
                 Emergency Contacts
               </p>
               <p className="text-xs text-muted-foreground">
-                People to notify during SOS. Use a number like +919876543210.
+                Pick who should receive SOS. Use a number like +919876543210.
               </p>
             </div>
           </div>
@@ -599,6 +633,13 @@ const EmergencyScreen = ({
                   key={contact.id}
                   className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3"
                 >
+                  <input
+                    type="checkbox"
+                    checked={contact.selectedForSos}
+                    onChange={() => toggleContactSelection(contact.id)}
+                    aria-label={`Select ${contact.name} for SOS`}
+                    className="h-4 w-4 accent-primary"
+                  />
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-foreground">
                       {contact.name}

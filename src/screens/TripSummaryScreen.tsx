@@ -25,6 +25,7 @@ const formatDuration = (durationSec: number | null) => {
   if (!durationSec || durationSec <= 0) {
     return "-";
   }
+
   const mins = Math.floor(durationSec / 60);
   const secs = durationSec % 60;
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
@@ -103,9 +104,9 @@ const TripSummaryScreen = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="relative h-full flex flex-col"
+      className="relative flex h-full flex-col"
     >
-      <div className="px-6 pt-2 pb-4">
+      <div className="px-6 pb-4 pt-2">
         <h2 className="text-lg font-bold text-foreground">Trip Summary</h2>
         <p className="text-xs text-muted-foreground">
           {role === "driver"
@@ -114,7 +115,7 @@ const TripSummaryScreen = ({
         </p>
       </div>
 
-      <div className="flex-1 px-6 overflow-y-auto pb-28">
+      <div className="flex-1 overflow-y-auto px-6 pb-28">
         {loading ? (
           <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
             Loading trip history...

@@ -1,6 +1,7 @@
 import express from "express";
 import {
   completeRideOtp,
+  completeRideOtpByCode,
   createRideOtp,
   getNearbyAvailableDrivers,
   getRideByOtp,
@@ -11,6 +12,10 @@ import {
   joinRideByOtpAsDriver,
   updateRideOtpLocation,
 } from "../db/sqlite.js";
+import {
+  analyzeDrowsinessFrame,
+  resetDrowsinessSession,
+} from "../services/drowsinessBridge.js";
 import { emitTripEvent } from "../liveTracking.js";
 import { discoverAndStoreRouteGarages } from "../services/garageDiscovery.js";
 
@@ -29,6 +34,51 @@ const asyncHandler = (handler) => async (req, res) => {
     });
   }
 };
+
+router.post(
+  "/drowsiness/reset",
+  asyncHandler(async (req, res) => {
+    const { sessionKey } = req.body || {};
+    if (!sessionKey) {
+      return res.status(400).json({
+        success: false,
+        message: "sessionKey is required",
+      });
+    }
+
+    await resetDrowsinessSession(String(sessionKey));
+
+    res.json({
+      success: true,
+      sessionKey: String(sessionKey),
+    });
+  }),
+);
+
+router.post(
+  "/drowsiness/analyze",
+  asyncHandler(async (req, res) => {
+    const { frameDataUrl, sessionKey, reset = false } = req.body || {};
+
+    if (!frameDataUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "frameDataUrl is required",
+      });
+    }
+
+    const result = await analyzeDrowsinessFrame({
+      frameDataUrl: String(frameDataUrl),
+      sessionKey: sessionKey ? String(sessionKey) : null,
+      reset: Boolean(reset),
+    });
+
+    res.json({
+      success: true,
+      result,
+    });
+  }),
+);
 
 router.post(
   "/create",
@@ -193,6 +243,40 @@ router.post(
     res.json({
       success: true,
       summary,
+    });
+  }),
+);
+
+router.post(
+  "/complete",
+  asyncHandler(async (req, res) => {
+    const { otpCode, lat, lng, completedAt, behaviorScore, drowsinessSummary } =
+      req.body || {};
+
+    if (!otpCode) {
+      return res.status(400).json({
+        success: false,
+        message: "otpCode is required",
+      });
+    }
+
+    const ride = await completeRideOtpByCode({
+      otpCode: String(otpCode).trim(),
+      lat: lat === undefined ? null : Number(lat),
+      lng: lng === undefined ? null : Number(lng),
+      completedAt,
+      behaviorScore:
+        behaviorScore === undefined || behaviorScore === null
+          ? null
+          : Number(behaviorScore),
+      drowsinessSummary: drowsinessSummary || null,
+    });
+
+    const passengerView = await getRideOtpPassengerView(ride.otp_code);
+
+    res.json({
+      success: true,
+      ride: passengerView,
     });
   }),
 );

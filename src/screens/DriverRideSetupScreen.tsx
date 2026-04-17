@@ -9,6 +9,7 @@ import {
 interface DriverRideSetupScreenProps {
   driverPhone: string;
   onJoinedRide: (ride: {
+    rideId?: number;
     otpCode: string;
     sourceLabel: string;
     destinationLabel: string;
@@ -69,7 +70,8 @@ const DriverRideSetupScreen = ({
       }
 
       onJoinedRide({
-        otpCode,
+        rideId: Number(ride.ride_id),
+        otpCode: String(ride.otp_code || otpCode),
         sourceLabel: ride.source_label || "Passenger pickup",
         destinationLabel: ride.destination_label || "Passenger destination",
         source: { lat: Number(ride.start_lat), lng: Number(ride.start_lng) },

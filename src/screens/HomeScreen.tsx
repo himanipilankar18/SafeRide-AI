@@ -27,6 +27,8 @@ export interface TripConfig {
   destination: LatLng;
   toleranceKm: number;
   sampleIntervalSec: number;
+  rideOtpCode?: string;
+  rideId?: number;
   driverName?: string;
   driverPhone?: string;
   driverVehicleDetails?: string;
