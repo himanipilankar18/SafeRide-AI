@@ -10,7 +10,7 @@ interface PhoneFrameProps {
 const PhoneFrame = ({ children, showBack, onBack }: PhoneFrameProps) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="relative w-full max-w-[390px] h-[844px] bg-card rounded-[2.5rem] phone-frame overflow-hidden border border-border">
+      <div className="relative w-full max-w-[420px] h-[844px] bg-card rounded-[2.5rem] phone-frame overflow-hidden border border-border">
         {/* Screen content */}
         <div className="h-full overflow-hidden relative">
           {showBack && onBack && (

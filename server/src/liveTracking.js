@@ -9,6 +9,15 @@ const clients = new Map();
 export const initializeLiveTracking = (server) => {
   const wss = new WebSocketServer({ server });
 
+  wss.on("error", (error) => {
+    if (error?.code === "EADDRINUSE") {
+      console.log("⚠️ WebSocket startup skipped because port is already in use by another backend instance.");
+      return;
+    }
+
+    console.error("❌ WebSocket server error:", error);
+  });
+
   wss.on("connection", (ws) => {
     const clientId = `client_${Date.now()}_${Math.random()}`;
     clients.set(clientId, ws);

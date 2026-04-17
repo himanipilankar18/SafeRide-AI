@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Bell, Power } from "lucide-react";
+import { MapPin, Bell, PlusCircle, UserRound } from "lucide-react";
 import AppLogo from "@/components/AppLogo";
 import { LatLng } from "@/lib/navigationSafety";
 import { reverseGeocodePlace } from "@/lib/placeSearch";
@@ -15,6 +15,7 @@ import L from "leaflet";
 
 interface DriverHomeScreenProps {
   onGoOnline: () => void;
+  onOpenRegistration: () => void;
 }
 
 const deviceLocationIcon = L.divIcon({
@@ -55,7 +56,7 @@ const FollowDevice = ({
   return null;
 };
 
-const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
+const DriverHomeScreen = ({ onGoOnline, onOpenRegistration }: DriverHomeScreenProps) => {
   const fallbackCenter = useMemo<LatLng>(
     () => ({ lat: 12.9716, lng: 77.5946 }),
     [],
@@ -304,8 +305,16 @@ const DriverHomeScreen = ({ onGoOnline }: DriverHomeScreenProps) => {
             onClick={onGoOnline}
             className="w-full py-4 rounded-2xl bg-safe text-safe-foreground font-bold text-base transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
           >
-            <Power size={20} />
-            Go Online
+            <PlusCircle size={20} />
+            Join a Ride
+          </button>
+
+          <button
+            onClick={onOpenRegistration}
+            className="mt-2 w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <UserRound size={16} />
+            Face Verification
           </button>
         </div>
       </div>

@@ -12,6 +12,12 @@ import TripSummaryScreen from "@/screens/TripSummaryScreen";
 import DriverHomeScreen from "@/screens/DriverHomeScreen";
 import DriverMonitoringScreen from "@/screens/DriverMonitoringScreen";
 import DriverVerificationScreen from "@/screens/DriverVerificationScreen";
+import DriverRideSetupScreen from "@/screens/DriverRideSetupScreen";
+import PassengerJoinRideScreen, {
+  type JoinedRidePayload,
+} from "@/screens/PassengerJoinRideScreen";
+import PassengerRideLiveScreen from "@/screens/PassengerRideLiveScreen";
+import ProfileScreen from "@/screens/ProfileScreen";
 import { TripConfig } from "@/screens/HomeScreen";
 
 type Screen =
@@ -20,6 +26,10 @@ type Screen =
   | "login"
   | "home"
   | "driverVerify"
+  | "driverRideSetup"
+  | "passengerJoinRide"
+  | "passengerRideLive"
+  | "profile"
   | "monitoring"
   | "emergency"
   | "summary";
@@ -31,6 +41,8 @@ const Index = () => {
     () => localStorage.getItem("phoneNumber") || "driver-demo",
   );
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
+  const [joinedRide, setJoinedRide] = useState<JoinedRidePayload | null>(null);
+  const [driverJoinedRideTrip, setDriverJoinedRideTrip] = useState<TripConfig | null>(null);
   const [tripConfig, setTripConfig] = useState<TripConfig>({
     sourceLabel: "MG Road, Bangalore",
     destinationLabel: "Koramangala, Bangalore",
@@ -42,6 +54,16 @@ const Index = () => {
     driverPhone: "+91 demo-driver",
     driverVehicleDetails: "White Swift KA-01-AB-1234",
   });
+
+  const resolveApiBase = () => {
+    const configured = import.meta.env.VITE_API_BASE_URL;
+    if (typeof configured === "string" && configured.trim()) {
+      const clean = configured.trim().replace(/\/$/, "");
+      return clean.endsWith("/api") ? clean : `${clean}/api`;
+    }
+
+    return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+  };
 
   const handleBack = () => {
     switch (screen) {
@@ -55,12 +77,24 @@ const Index = () => {
       case "home":
         setScreen("login");
         break;
+      case "driverRideSetup":
+        setScreen("home");
+        break;
+      case "passengerJoinRide":
+        setScreen("login");
+        break;
+      case "passengerRideLive":
+        setScreen("passengerJoinRide");
+        break;
+      case "profile":
+        setScreen("home");
+        break;
       case "monitoring":
         setHasActiveTrip(false);
-        setScreen(role === "driver" ? "driverVerify" : "home");
+        setScreen("home");
         break;
       case "driverVerify":
-        setScreen("home");
+        setScreen("login");
         break;
       case "emergency":
         setScreen("monitoring");
@@ -91,7 +125,11 @@ const Index = () => {
             userType={role ?? "passenger"}
             onLogin={(user) => {
               if (user.userType === "driver") {
-                setDriverCredential(user.phoneNumber || "driver-demo");
+                const phone = user.phoneNumber || "driver-demo";
+                setDriverCredential(phone);
+
+                setScreen("home");
+                return;
               }
               setScreen("home");
             }}
@@ -101,13 +139,50 @@ const Index = () => {
         return role === "driver" ? (
           <DriverHomeScreen
             key="driver-home"
-            onGoOnline={() => setScreen("driverVerify")}
+            onGoOnline={() => {
+              const phone = localStorage.getItem("phoneNumber") || driverCredential || "driver-demo";
+              const isFaceVerified = localStorage.getItem(`driverFaceVerified:${phone}`) === "true";
+              setScreen(isFaceVerified ? "driverRideSetup" : "driverVerify");
+            }}
+            onOpenRegistration={() => setScreen("driverVerify")}
           />
         ) : (
           <HomeScreen
             key="passenger-home"
-            onStartRide={(trip) => {
+            onCreateRide={async (trip) => {
               setTripConfig(trip);
+
+              try {
+                const response = await fetch(`${resolveApiBase()}/rides/create`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    passengerPhone: localStorage.getItem("phoneNumber") || "passenger-demo",
+                    sourceLabel: trip.sourceLabel,
+                    destinationLabel: trip.destinationLabel,
+                    startLocation: trip.source,
+                    destinationLocation: trip.destination,
+                  }),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data?.success || !data?.ride?.otp_code) {
+                  throw new Error(data?.message || "Could not create ride");
+                }
+
+                setJoinedRide({
+                  otpCode: String(data.ride.otp_code),
+                  driverName: "Waiting for driver",
+                  carNumber: "TBD",
+                  carModel: "TBD",
+                  faceImage: null,
+                  lat: trip.source.lat,
+                  lng: trip.source.lng,
+                });
+              } catch {
+                setJoinedRide(null);
+              }
+
               setHasActiveTrip(true);
               setScreen("monitoring");
             }}
@@ -118,12 +193,72 @@ const Index = () => {
         return (
           <DriverVerificationScreen
             key="driver-verify"
-            credential={driverCredential}
-            onVerified={() => setScreen("monitoring")}
+            phoneNumber={driverCredential}
+            onVerified={() => {
+              const phone = localStorage.getItem("phoneNumber") || driverCredential || "driver-demo";
+              localStorage.setItem(`driverFaceVerified:${phone}`, "true");
+              setScreen("driverRideSetup");
+            }}
+          />
+        );
+      case "driverRideSetup":
+        return (
+          <DriverRideSetupScreen
+            key="driver-ride-setup"
+            driverPhone={driverCredential}
+            onJoinedRide={(ride) => {
+              setDriverJoinedRideTrip({
+                sourceLabel: ride.sourceLabel,
+                destinationLabel: ride.destinationLabel,
+                source: ride.source,
+                destination: ride.destination,
+                toleranceKm: 0.3,
+                sampleIntervalSec: 5,
+                driverName: "Driver",
+                driverPhone: driverCredential,
+              });
+              setHasActiveTrip(true);
+              setScreen("monitoring");
+            }}
+          />
+        );
+      case "passengerJoinRide":
+        return (
+          <PassengerJoinRideScreen
+            key="passenger-join-ride"
+            passengerPhone={localStorage.getItem("phoneNumber") || "passenger-demo"}
+            onJoined={(ride) => {
+              setJoinedRide(ride);
+              setHasActiveTrip(true);
+              setScreen("passengerRideLive");
+            }}
+          />
+        );
+      case "passengerRideLive":
+        return joinedRide ? (
+          <PassengerRideLiveScreen key="passenger-ride-live" ride={joinedRide} />
+        ) : (
+          <PassengerJoinRideScreen
+            key="passenger-join-ride-fallback"
+            passengerPhone={localStorage.getItem("phoneNumber") || "passenger-demo"}
+            onJoined={(ride) => {
+              setJoinedRide(ride);
+              setHasActiveTrip(true);
+              setScreen("passengerRideLive");
+            }}
           />
         );
       case "monitoring":
-        return role === "driver" ? (
+        return role === "driver" && driverJoinedRideTrip ? (
+          <MonitoringScreen
+            key="driver-route-monitoring"
+            onEmergency={() => setScreen("emergency")}
+            onNavigate={(s) => setScreen(s as Screen)}
+            tripConfig={driverJoinedRideTrip}
+            onTripChange={setDriverJoinedRideTrip}
+            hasActiveTrip={hasActiveTrip}
+          />
+        ) : role === "driver" ? (
           <DriverMonitoringScreen
             key="driver-monitoring"
             onEmergency={() => setScreen("emergency")}
@@ -136,6 +271,15 @@ const Index = () => {
             tripConfig={tripConfig}
             onTripChange={setTripConfig}
             hasActiveTrip={hasActiveTrip}
+          />
+        );
+      case "profile":
+        return (
+          <ProfileScreen
+            key="profile"
+            role={role || "passenger"}
+            phoneNumber={localStorage.getItem("phoneNumber") || "N/A"}
+            onOpenRegistration={role === "driver" ? () => setScreen("driverVerify") : undefined}
           />
         );
       case "emergency":
@@ -166,20 +310,17 @@ const Index = () => {
         </AnimatePresence>
 
         {role === "driver" &&
-          ["home", "monitoring", "emergency", "summary"].includes(screen) && (
+          ["home", "monitoring", "emergency", "summary", "profile"].includes(screen) && (
             <div className="absolute inset-x-0 bottom-0 z-[2000]">
               <BottomNav
                 active={screen}
                 onNavigate={(nextScreen) => {
-                  if (role === "driver" && nextScreen === "monitoring") {
-                    setScreen("driverVerify");
-                    return;
-                  }
                   setScreen(nextScreen as Screen);
                 }}
               />
             </div>
           )}
+
       </div>
     </PhoneFrame>
   );

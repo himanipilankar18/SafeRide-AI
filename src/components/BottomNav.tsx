@@ -1,4 +1,4 @@
-import { Home, Shield, AlertTriangle, Clock } from "lucide-react";
+import { Home, Shield, AlertTriangle, Clock, UserRound } from "lucide-react";
 
 interface BottomNavProps {
   active: string;
@@ -10,6 +10,7 @@ const navItems = [
   { id: "monitoring", icon: Shield, label: "Ride" },
   { id: "emergency", icon: AlertTriangle, label: "SOS" },
   { id: "summary", icon: Clock, label: "Trips" },
+  { id: "profile", icon: UserRound, label: "Profile" },
 ];
 
 const BottomNav = ({ active, onNavigate }: BottomNavProps) => {

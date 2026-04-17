@@ -1,4 +1,2 @@
-deepface
-opencv-python
 numpy
-tf-keras
+pillow

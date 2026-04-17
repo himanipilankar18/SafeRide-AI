@@ -34,11 +34,11 @@ export interface TripConfig {
 }
 
 interface HomeScreenProps {
-  onStartRide: (trip: TripConfig) => void;
+  onCreateRide: (trip: TripConfig) => void;
   onNavigate: (screen: string) => void;
 }
 
-const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
+const HomeScreen = ({ onCreateRide, onNavigate }: HomeScreenProps) => {
   const [sourceQuery, setSourceQuery] = useState("");
   const [destinationQuery, setDestinationQuery] = useState("");
   const [sourceSelection, setSourceSelection] =
@@ -219,7 +219,7 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
         resolveOrThrow(destinationQuery, "destination", destinationSelection),
       ]);
 
-      onStartRide({
+      onCreateRide({
         sourceLabel: sourcePlace.label,
         destinationLabel: destinationPlace.label,
         source: { lat: sourcePlace.lat, lng: sourcePlace.lng },
@@ -356,10 +356,10 @@ const HomeScreen = ({ onStartRide, onNavigate }: HomeScreenProps) => {
             {isResolvingTrip ? (
               <span className="inline-flex items-center gap-2">
                 <LoaderCircle size={16} className="animate-spin" />
-                Starting Ride
+                Creating Ride
               </span>
             ) : (
-              "Start Ride"
+              "Create Ride"
             )}
           </motion.button>
         </div>
