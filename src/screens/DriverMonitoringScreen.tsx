@@ -6,18 +6,7 @@ import {
   Gauge,
   Phone,
   Timer,
-  Wrench,
-  Car,
-  MapPin,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { LatLng } from "@/lib/navigationSafety";
-import {
-  DistanceEntry,
-  NearbyGarage,
-  getNearbyGarages,
-  reportDriverIncident,
-} from "@/lib/roadsideSupport";
 
 interface DriverMonitoringScreenProps {
   onEmergency: () => void;
@@ -27,94 +16,17 @@ const DriverMonitoringScreen = ({
   onEmergency,
 }: DriverMonitoringScreenProps) => {
   const safetyScore = 92;
-  const [location, setLocation] = useState<LatLng | null>(null);
-  const [garageSource, setGarageSource] = useState<"online" | "offline-cache">(
-    "online",
-  );
-  const [nearbyGarages, setNearbyGarages] = useState<
-    DistanceEntry<NearbyGarage>[]
-  >([]);
-  const [assistStatus, setAssistStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setAssistStatus("GPS not available on this device.");
-      return;
-    }
-
-    let cancelled = false;
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const current = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-        if (cancelled) return;
-        setLocation(current);
-
-        const { garages, source } = await getNearbyGarages(current, 3);
-        if (cancelled) return;
-        setNearbyGarages(garages);
-        setGarageSource(source);
-        setAssistStatus(
-          source === "online"
-            ? "Showing nearby garages from live GPS search."
-            : "Live lookup unavailable. Showing cached nearby garages.",
-        );
-      },
-      async () => {
-        const fallback = { lat: 12.9716, lng: 77.5946 };
-        if (cancelled) return;
-        setLocation(fallback);
-        const { garages, source } = await getNearbyGarages(fallback, 3);
-        if (cancelled) return;
-        setNearbyGarages(garages);
-        setGarageSource(source);
-        setAssistStatus("Using fallback city location for roadside support.");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const callNumber = (phone: string) => {
-    if (!phone) return;
-    window.location.href = `tel:${phone}`;
-  };
-
-  const reportIssue = (reason: "puncture" | "mechanical") => {
-    if (!location) {
-      setAssistStatus("Waiting for your location. Try again in a moment.");
-      return;
-    }
-
-    const nearest = nearbyGarages[0];
-    reportDriverIncident({
-      reason,
-      location,
-      reportedAt: new Date().toISOString(),
-      nearestGarage: nearest
-        ? {
-            name: nearest.item.name,
-            phone: nearest.item.phone,
-            distanceKm: nearest.distanceKm,
-          }
-        : undefined,
-    });
-
-    setAssistStatus(
-      nearest
-        ? `Issue shared. Nearest garage: ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km).`
-        : "Issue shared. Passenger can now request a replacement driver.",
-    );
-  };
+  const avgSpeedKmph = 42;
+  const sessionMinutes = 24;
+  const alertsInSession = 0;
+  const harshBrakes = 1;
+  const laneCorrections = 2;
+  const focusPercent = 96;
+  const aiInsights = [
+    `Focus stable at ${focusPercent}% over last ${sessionMinutes} min.`,
+    `Only ${harshBrakes} harsh-brake event and ${laneCorrections} lane corrections this session.`,
+    `Average speed ${avgSpeedKmph} km/h in safe city-driving range.`,
+  ];
 
   return (
     <motion.div
@@ -123,7 +35,7 @@ const DriverMonitoringScreen = ({
       exit={{ opacity: 0 }}
       className="relative h-full flex flex-col"
     >
-      <div className="px-6 pt-2 pb-4">
+      <div className="pl-14 pr-6 pt-12 pb-4">
         <h2 className="text-lg font-bold text-foreground">Driver Dashboard</h2>
         <p className="text-xs text-muted-foreground">
           AI monitoring your driving
@@ -182,7 +94,7 @@ const DriverMonitoringScreen = ({
             className="bg-card rounded-2xl p-4 border border-border"
           >
             <Gauge size={20} className="text-primary mb-2" />
-            <p className="text-xl font-extrabold text-foreground">42</p>
+            <p className="text-xl font-extrabold text-foreground">{avgSpeedKmph}</p>
             <p className="text-[10px] text-muted-foreground">km/h Speed</p>
           </motion.div>
           <motion.div
@@ -202,7 +114,7 @@ const DriverMonitoringScreen = ({
             className="bg-card rounded-2xl p-4 border border-border"
           >
             <Timer size={20} className="text-primary mb-2" />
-            <p className="text-xl font-extrabold text-foreground">1:24</p>
+            <p className="text-xl font-extrabold text-foreground">0:{String(sessionMinutes).padStart(2, "0")}</p>
             <p className="text-[10px] text-muted-foreground">Drive Time</p>
           </motion.div>
           <motion.div
@@ -212,7 +124,7 @@ const DriverMonitoringScreen = ({
             className="bg-card rounded-2xl p-4 border border-border"
           >
             <AlertTriangle size={20} className="text-warning mb-2" />
-            <p className="text-xl font-extrabold text-foreground">0</p>
+            <p className="text-xl font-extrabold text-foreground">{alertsInSession}</p>
             <p className="text-[10px] text-muted-foreground">Alerts</p>
           </motion.div>
         </div>
@@ -227,18 +139,15 @@ const DriverMonitoringScreen = ({
           <p className="text-sm font-semibold text-muted-foreground">
             AI Insights
           </p>
-          <div className="flex items-center gap-3 bg-safe/10 rounded-xl p-3">
-            <Shield size={16} className="text-safe" />
-            <span className="text-sm text-foreground">
-              Smooth braking detected
-            </span>
-          </div>
-          <div className="flex items-center gap-3 bg-safe/10 rounded-xl p-3">
-            <Shield size={16} className="text-safe" />
-            <span className="text-sm text-foreground">
-              Lane discipline maintained
-            </span>
-          </div>
+          {aiInsights.map((insight) => (
+            <div
+              key={insight}
+              className="flex items-center gap-3 bg-safe/10 rounded-xl p-3"
+            >
+              <Shield size={16} className="text-safe" />
+              <span className="text-sm text-foreground">{insight}</span>
+            </div>
+          ))}
         </motion.div>
 
         <motion.button
@@ -252,93 +161,6 @@ const DriverMonitoringScreen = ({
           Emergency
         </motion.button>
 
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.45 }}
-          className="bg-card rounded-2xl p-5 border border-border space-y-3"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-muted-foreground">
-                Find Garage
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Nearest garages around your current location
-              </p>
-            </div>
-            <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase text-primary">
-              {garageSource === "offline-cache" ? "Offline" : "Live"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => reportIssue("puncture")}
-              className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground"
-            >
-              <Wrench size={14} className="mr-1 inline" /> Tyre puncture
-            </button>
-            <button
-              type="button"
-              onClick={() => reportIssue("mechanical")}
-              className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground"
-            >
-              <Car size={14} className="mr-1 inline" /> Mechanical issue
-            </button>
-          </div>
-
-          {assistStatus && (
-            <p className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-muted-foreground">
-              {assistStatus}
-            </p>
-          )}
-
-          {nearbyGarages.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Searching nearby garages...
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {nearbyGarages.map((garage) => (
-                <div
-                  key={garage.item.id}
-                  className="rounded-xl border border-border bg-background p-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {garage.item.name}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        <MapPin size={12} className="mr-1 inline" />
-                        {garage.item.address}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {garage.distanceKm.toFixed(1)} km away
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {garage.item.location.lat.toFixed(5)},{" "}
-                        {garage.item.location.lng.toFixed(5)}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {garage.item.phone}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => callNumber(garage.item.phone)}
-                      className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
-                    >
-                      Call
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </motion.div>
       </div>
     </motion.div>
   );

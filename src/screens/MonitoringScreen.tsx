@@ -14,10 +14,7 @@ import { LatLng, haversineKm } from "@/lib/navigationSafety";
 import { TripConfig } from "@/screens/HomeScreen";
 import { useLiveTracking } from "@/lib/useLiveTracking";
 import {
-  DistanceEntry,
-  NearbyGarage,
   NearbyDriver,
-  getNearbyGarages,
   getDriverIncident,
   clearDriverIncident,
 } from "@/lib/roadsideSupport";
@@ -302,13 +299,6 @@ const MonitoringScreen = ({
   const [dispatchStatusType, setDispatchStatusType] = useState<
     "success" | "error" | "info"
   >("info");
-  const [showRoadsidePanel, setShowRoadsidePanel] = useState(false);
-  const [roadsideSource, setRoadsideSource] = useState<
-    "online" | "offline-cache"
-  >("online");
-  const [nearbyGarages, setNearbyGarages] = useState<
-    DistanceEntry<NearbyGarage>[]
-  >([]);
   const [driverIncident, setDriverIncident] =
     useState<DriverIncidentState | null>(null);
   const [replacementDriver, setReplacementDriver] =
@@ -529,29 +519,6 @@ const MonitoringScreen = ({
     drowsinessAggregateRef.current = emptyDriverAggregate();
     lastDrowsinessStateRef.current = null;
   }, [hasActiveTrip, isDriverMode, tripConfig.rideOtpCode]);
-
-  useEffect(() => {
-    if (!isDriverMode) {
-      setNearbyGarages([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadGarages = async () => {
-      const { garages, source } = await getNearbyGarages(currentLocation, 3);
-      if (cancelled) return;
-      setNearbyGarages(garages);
-      setRoadsideSource(source);
-    };
-
-    loadGarages();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentLocation, isDriverMode]);
-
   const toggleContactSelection = (contactId: string) => {
     setSelectedContactIds((prev) =>
       prev.includes(contactId)
@@ -562,7 +529,15 @@ const MonitoringScreen = ({
 
   const callNumber = (phone: string) => {
     if (!phone) return;
-    window.location.href = `tel:${phone}`;
+    setDispatchStatusType("info");
+    setDispatchStatus(
+      `In-app simulation: contacting ${phone}. No real phone call was placed.`,
+    );
+  };
+
+  const simulatePoliceCall = () => {
+    setDispatchStatusType("info");
+    setDispatchStatus("Police call simulated in app. No real call was made.");
   };
 
   const handleDispatchEmergency = async () => {
@@ -1371,10 +1346,10 @@ const MonitoringScreen = ({
           {isDriverMode && (
             <button
               type="button"
-              onClick={() => setShowRoadsidePanel((prev) => !prev)}
+              onClick={() => onNavigate("driverFindGarage")}
               className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-gray-900 shadow-xl"
             >
-              {showRoadsidePanel ? "Hide Garage" : "Find Garage"}
+              Find Garage
             </button>
           )}
           {isDriverMode && (
@@ -1571,63 +1546,6 @@ const MonitoringScreen = ({
         </div>
       )}
 
-      {hasActiveTrip && isDriverMode && driverSlide === "map" && showRoadsidePanel && (
-        <div className="absolute inset-x-4 top-[31rem] z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
-              Find Garage{" "}
-              {roadsideSource === "offline-cache" ? "(Offline)" : "(Live)"}
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowRoadsidePanel(false)}
-              className="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
-            >
-              Close
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-gray-600">
-            Nearest garages with phone and location.
-          </p>
-
-          <div className="mt-2 space-y-2">
-            {nearbyGarages.length === 0 ? (
-              <p className="text-xs text-gray-500">Finding nearby garages...</p>
-            ) : (
-              nearbyGarages.map((garage) => (
-                <div
-                  key={garage.item.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-gray-800">
-                      {garage.item.name}
-                    </p>
-                    <p className="truncate text-[11px] text-gray-500">
-                      {garage.item.phone}
-                    </p>
-                    <p className="truncate text-[11px] text-gray-500">
-                      {garage.item.location.lat.toFixed(5)},{" "}
-                      {garage.item.location.lng.toFixed(5)}
-                    </p>
-                    <p className="truncate text-[11px] text-gray-500">
-                      {garage.distanceKm.toFixed(1)} km away
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => callNumber(garage.item.phone)}
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700"
-                  >
-                    Call
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
       {hasActiveTrip &&
         !isDriverMode &&
         showDeviationPanel &&
@@ -1769,7 +1687,7 @@ const MonitoringScreen = ({
                   onClick={() => callNumber(replacementDriver.phone)}
                   className="mt-2 rounded-lg border border-green-300 bg-white px-3 py-1.5 text-[11px] font-bold text-green-700"
                 >
-                  Call Replacement Driver
+                  Simulate Driver Call
                 </button>
               </div>
             )}
@@ -1827,10 +1745,10 @@ const MonitoringScreen = ({
               </button>
               <button
                 type="button"
-                onClick={() => callNumber(POLICE_CONTACT.phone)}
+                onClick={simulatePoliceCall}
                 className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700"
               >
-                Call Police
+                Simulate Police Call
               </button>
             </div>
 
@@ -1843,7 +1761,7 @@ const MonitoringScreen = ({
                     onClick={() => callNumber(contact.phone)}
                     className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700"
                   >
-                    Call {contact.name}
+                    Simulate Call: {contact.name}
                   </button>
                 ))}
               </div>
@@ -1894,7 +1812,7 @@ const MonitoringScreen = ({
             onClick={() => setShowEmergencyAlert(true)}
             className="mt-3 w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg"
           >
-            Call Emergency
+            Open Emergency Alert
           </button>
         </div>
       )}

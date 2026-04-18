@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { KeyRound } from "lucide-react";
 import {
   InputOTP,
   InputOTPGroup,
@@ -89,20 +90,25 @@ const DriverRideSetupScreen = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="h-full overflow-y-auto px-5 pb-8 pt-12"
+      className="h-full overflow-y-auto px-5 pb-8 pt-20 bg-background"
     >
-      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+      <div className="mx-auto max-w-md rounded-3xl border border-border bg-card p-7 shadow-lg relative">
+        <div className="flex flex-col items-center -mt-12 mb-2">
+          <div className="rounded-full bg-primary/10 p-4 shadow-md mb-2">
+            <KeyRound size={36} className="text-primary" />
+          </div>
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-primary text-center mb-1">
           Driver
         </p>
-        <h2 className="mt-2 text-2xl font-extrabold text-foreground">
+        <h2 className="text-2xl font-extrabold text-foreground text-center mb-1">
           Join a Ride
         </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Enter the OTP created by passenger.
+        <p className="text-sm text-muted-foreground text-center mb-4">
+          Enter the OTP created by the passenger to start your trip.
         </p>
 
-        <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
+        <div className="mt-2 rounded-2xl border border-border bg-muted/60 p-5">
           <p className="mb-3 text-xs font-semibold text-foreground">Ride OTP</p>
           <InputOTP
             maxLength={6}
@@ -123,7 +129,7 @@ const DriverRideSetupScreen = ({
         </div>
 
         {error && (
-          <div className="mt-4 rounded-xl bg-red-100 px-3 py-2 text-xs text-red-800">
+          <div className="mt-4 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive text-center">
             {error}
           </div>
         )}
@@ -132,7 +138,7 @@ const DriverRideSetupScreen = ({
           type="button"
           onClick={joinRide}
           disabled={otpCode.length !== 6 || isJoining}
-          className="mt-5 w-full rounded-2xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-60"
+          className="mt-7 w-full rounded-2xl bg-primary py-3 text-base font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98] disabled:opacity-60"
         >
           {isJoining ? "Joining..." : "Join Ride"}
         </button>

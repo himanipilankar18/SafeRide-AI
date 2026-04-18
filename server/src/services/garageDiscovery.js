@@ -11,6 +11,7 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
+const OVERPASS_FETCH_TIMEOUT_MS = 2800;
 
 const toRadians = (value) => (value * Math.PI) / 180;
 
@@ -86,18 +87,26 @@ const minDistanceToRouteKm = (point, routePoints) => {
 };
 
 const fetchOverpassGaragesAtPoint = async (origin, radiusMeters = 3500) => {
-  const query = `[out:json][timeout:20];(node["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});node["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});way["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});way["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});relation["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});relation["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng}););out center tags;`;
+  const query = `[out:json][timeout:8];(node["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});node["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});way["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});way["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});relation["shop"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng});relation["amenity"="car_repair"](around:${radiusMeters},${origin.lat},${origin.lng}););out center tags;`;
 
   let lastError = null;
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    let timeoutId;
     try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(
+        () => controller.abort(),
+        OVERPASS_FETCH_TIMEOUT_MS,
+      );
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         },
         body: new URLSearchParams({ data: query }).toString(),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -134,6 +143,10 @@ const fetchOverpassGaragesAtPoint = async (origin, radiusMeters = 3500) => {
       return garages;
     } catch (error) {
       lastError = error;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 
@@ -238,6 +251,7 @@ export const discoverNearbyGarages = async ({
   lng,
   limit = 8,
   allowSynthetic = true,
+  allowOfflineCache = true,
 }) => {
   const origin = { lat: Number(lat), lng: Number(lng) };
 
@@ -270,6 +284,13 @@ export const discoverNearbyGarages = async ({
       garages: withDistance,
     };
   } catch {
+    if (!allowOfflineCache) {
+      return {
+        source: "online",
+        garages: [],
+      };
+    }
+
     const cached = await fetchNearbyGarages({
       lat: origin.lat,
       lng: origin.lng,
@@ -375,6 +396,7 @@ export const discoverGaragesForDriverContext = async ({
   driverPhone,
   limit = 8,
   preferNearby = false,
+  strictGps = false,
 }) => {
   const origin = { lat: Number(lat), lng: Number(lng) };
 
@@ -383,7 +405,8 @@ export const discoverGaragesForDriverContext = async ({
       lat: origin.lat,
       lng: origin.lng,
       limit,
-      allowSynthetic: true,
+      allowSynthetic: !strictGps,
+      allowOfflineCache: !strictGps,
     });
   }
 
@@ -439,7 +462,8 @@ export const discoverGaragesForDriverContext = async ({
         lat: origin.lat,
         lng: origin.lng,
         limit,
-        allowSynthetic: true,
+        allowSynthetic: !strictGps,
+        allowOfflineCache: !strictGps,
       });
 
       return {
@@ -453,7 +477,8 @@ export const discoverGaragesForDriverContext = async ({
     lat: origin.lat,
     lng: origin.lng,
     limit,
-    allowSynthetic: true,
+    allowSynthetic: !strictGps,
+    allowOfflineCache: !strictGps,
   });
 
   return {

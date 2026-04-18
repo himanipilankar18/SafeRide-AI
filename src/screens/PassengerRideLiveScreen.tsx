@@ -485,10 +485,21 @@ const PassengerRideLiveScreen = ({
             return total + haversineKm(previous, current);
           }, 0)
         : 0;
-
       const durationSec = Math.max(
         1,
         Math.round((Date.now() - startTimeRef.current) / 1000),
+      );
+      const deviationAlerts = alerts.filter(
+        (alert) => alert.severity === "warning" || alert.severity === "danger",
+      ).length;
+      const averageSpeedKmph =
+        durationSec > 0
+          ? Number(((distanceKm / durationSec) * 3600).toFixed(1))
+          : 0;
+      const safetyScore = Math.max(0, 100 - deviationAlerts * 8);
+      const routeAdherencePercent = Math.max(
+        0,
+        Math.min(100, 100 - deviationAlerts * 12),
       );
 
       await onEndTrip({
@@ -497,11 +508,10 @@ const PassengerRideLiveScreen = ({
         distanceKm,
         durationSec,
         driverPerformance: {
-          safetyScore: riskLevel === "danger" ? 50 : riskLevel === "warning" ? 75 : 95,
-          deviationAlerts: alerts.length,
-          averageSpeedKmph: durationSec > 0 ? (distanceKm / durationSec) * 3600 : 0,
-          routeAdherencePercent:
-            riskLevel === "danger" ? 70 : riskLevel === "warning" ? 85 : 98,
+          safetyScore,
+          deviationAlerts,
+          averageSpeedKmph,
+          routeAdherencePercent,
           durationSec,
           distanceKm,
         },
@@ -521,7 +531,6 @@ const PassengerRideLiveScreen = ({
       : drowsiness.level === "WARNING"
         ? "bg-amber-100 text-amber-700 border-amber-300"
         : "bg-emerald-100 text-emerald-700 border-emerald-300";
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
