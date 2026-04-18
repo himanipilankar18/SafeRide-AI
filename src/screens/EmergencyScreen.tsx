@@ -86,7 +86,7 @@ const EmergencyScreen = ({
   const [contactError, setContactError] = useState<string | null>(null);
   const [alertStatus, setAlertStatus] = useState<string | null>(null);
   const [alertStatusType, setAlertStatusType] = useState<
-    "success" | "error" | "info"
+    "success" | "error" | "info" | "warning"
   >("info");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [isSimulatingCall, setIsSimulatingCall] = useState(false);
@@ -304,7 +304,7 @@ const EmergencyScreen = ({
       });
 
       const data = await response.json();
-      if (!response.ok || !data.success) {
+      if (!response.ok) {
         const failureReasons = Array.isArray(data?.results)
           ? data.results
               .filter(
@@ -329,8 +329,21 @@ const EmergencyScreen = ({
         );
       }
 
+      const sentCount = Number(data?.sentCount || 0);
+      const totalRecipients = Number(
+        data?.totalRecipients || data?.results?.length || selectedContacts.length,
+      );
+      const failedCount = Math.max(0, totalRecipients - sentCount);
+      const partial = Boolean(data?.partial || (sentCount > 0 && failedCount > 0));
+
       setAlertStatus(data.message || "Emergency alerts sent.");
-      setAlertStatusType("success");
+      if (sentCount === 0) {
+        setAlertStatusType("error");
+      } else if (partial) {
+        setAlertStatusType("warning");
+      } else {
+        setAlertStatusType("success");
+      }
     } catch (error) {
       setAlertStatus(
         error instanceof Error
@@ -424,6 +437,8 @@ const EmergencyScreen = ({
             className={`mb-5 w-full rounded-2xl px-4 py-3 text-center text-xs font-semibold ${
               alertStatusType === "success"
                 ? "bg-safe/10 text-safe"
+                : alertStatusType === "warning"
+                  ? "bg-warning/10 text-warning"
                 : alertStatusType === "error"
                   ? "bg-destructive/10 text-destructive"
                   : "bg-accent text-muted-foreground"
