@@ -17,6 +17,8 @@ from modules.eye_analysis import EyeAnalyzer  # noqa: E402
 from modules.face_detector import FaceLandmarkDetector  # noqa: E402
 from modules.fatigue import FatigueMonitor  # noqa: E402
 from modules.fusion import FusionEngine  # noqa: E402
+from modules.hardware_interface import HardwareInterface  # noqa: E402
+from config import CONFIG  # noqa: E402
 
 
 class DrowsinessInferenceWorker:
@@ -29,6 +31,56 @@ class DrowsinessInferenceWorker:
 
         self.current_session_key: Optional[str] = None
         self.no_face_since: Optional[float] = None
+
+        self.hardware: Optional[HardwareInterface] = None
+        self.previous_state: Optional[str] = None
+        self.last_hardware_send_ts = 0.0
+        self._init_hardware()
+
+    def _init_hardware(self) -> None:
+        enable_hardware = str(
+            os.getenv("DROWSINESS_ENABLE_HARDWARE", str(CONFIG.enable_hardware)),
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+        if not enable_hardware:
+            return
+
+        serial_port = os.getenv("DROWSINESS_SERIAL_PORT", CONFIG.serial_port)
+        serial_baudrate = int(
+            os.getenv("DROWSINESS_SERIAL_BAUDRATE", str(CONFIG.serial_baudrate)),
+        )
+
+        hardware = HardwareInterface(
+            port=serial_port,
+            baudrate=serial_baudrate,
+        )
+
+        if hardware.connect():
+            self.hardware = hardware
+            default_state = os.getenv(
+                "DROWSINESS_HARDWARE_DEFAULT_STATE",
+                CONFIG.hardware_default_state,
+            )
+            if self.hardware.send_alert(default_state):
+                self.previous_state = default_state
+                self.last_hardware_send_ts = time.time()
+
+    def _send_hardware_state(self, state: str, timestamp: float) -> None:
+        if not self.hardware or not self.hardware.is_connected():
+            return
+
+        should_send = (
+            state != self.previous_state
+            or (timestamp - self.last_hardware_send_ts)
+            >= float(CONFIG.hardware_resend_interval_seconds)
+        )
+
+        if not should_send:
+            return
+
+        if self.hardware.send_alert(state):
+            self.previous_state = state
+            self.last_hardware_send_ts = timestamp
 
     def reset(self, session_key: Optional[str] = None) -> None:
         self.eye_analyzer = EyeAnalyzer()
@@ -90,6 +142,8 @@ class DrowsinessInferenceWorker:
                 distraction_score = 48.0
                 reason = "searching_for_face"
 
+            self._send_hardware_state(state, timestamp)
+
             return {
                 "state": state,
                 "riskScore": float(round(risk_score, 2)),
@@ -107,6 +161,7 @@ class DrowsinessInferenceWorker:
         distraction = self.distraction_monitor.update(head_pose, timestamp)
         fatigue = self.fatigue_monitor.update(detection.landmarks, eye_metrics, head_pose, timestamp)
         decision = self.fusion_engine.combine(fatigue, distraction, timestamp)
+        self._send_hardware_state(decision.state, timestamp)
 
         confidence = 0.9 if head_pose.valid and fatigue.eyes_available else 0.7
 
@@ -144,6 +199,13 @@ class DrowsinessInferenceWorker:
             self.detector.close()
         except Exception:
             pass
+
+        if self.hardware and self.hardware.is_connected():
+            try:
+                self.hardware.send_alert("OFF")
+                time.sleep(0.2)
+            finally:
+                self.hardware.disconnect()
 
 
 def _reply(payload: Dict[str, Any]) -> None:

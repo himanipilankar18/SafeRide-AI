@@ -15,6 +15,9 @@ export interface DeviationAlert {
 
 export interface LiveTrackingEvent {
   type:
+    | "TRIP_STATUS"
+    | "DROWSINESS"
+    | "ROUTE_ALERT"
     | "location_update"
     | "deviation_alert"
     | "driver_alert"
@@ -29,6 +32,28 @@ export interface LiveTrackingEvent {
   severity?: string;
   level?: string;
   message?: string;
+  status?: string;
+  monitoringActive?: boolean;
+  eyeClosure?: number;
+  attention?: number;
+  fatigueScore?: number;
+  distractionScore?: number;
+  confidence?: number;
+  reason?: string;
+  blinkRatePerMinute?: number;
+  eyeClosureSeconds?: number;
+  yaw?: number;
+  pitch?: number;
+  roll?: number;
+  faceDetected?: boolean;
+  fatigueFlags?: {
+    closureState?: string;
+    microsleep?: boolean;
+    frequentBlinking?: boolean;
+    lowEar?: boolean;
+    [key: string]: unknown;
+  };
+  distractionReason?: string;
   riskScore?: number;
   trend?: string;
   details?: {

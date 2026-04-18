@@ -10,6 +10,7 @@ import {
   updateTripLocation,
 } from "../db/sqlite.js";
 import { emitTripEvent } from "../liveTracking.js";
+import { emitRouteAlert } from "./tripLifecycleService.js";
 
 const DEFAULT_DEVIATION_THRESHOLD_METERS = Number(
   process.env.ROUTE_DEVIATION_THRESHOLD_METERS || 100,
@@ -476,6 +477,19 @@ export const processLocationUpdate = async ({
         harshBrakesInWindow: motion.harshBrakesInWindow,
       },
     });
+
+    if (deviationResult.isDeviation) {
+      emitRouteAlert({
+        tripId: String(tripId),
+        severity:
+          alertLevel === "high"
+            ? "danger"
+            : alertLevel === "medium"
+              ? "medium"
+              : "low",
+        message: "Route deviation detected",
+      });
+    }
   }
 
   emitTripEvent(tripId, {

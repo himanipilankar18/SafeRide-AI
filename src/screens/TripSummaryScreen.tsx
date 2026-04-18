@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarClock, Car, Clock3, MapPin, Route } from "lucide-react";
+import { AlertTriangle, CalendarClock, Car, Clock3, MapPin, Route } from "lucide-react";
 
 type RideSummary = {
   id: number;
@@ -29,6 +29,37 @@ const formatDuration = (durationSec: number | null) => {
   const mins = Math.floor(durationSec / 60);
   const secs = durationSec % 60;
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+};
+
+const deriveFinalStatus = (performance: {
+  safetyScore?: number;
+  riskLevel?: string;
+}) => {
+  const score =
+    typeof performance?.safetyScore === "number" ? performance.safetyScore : null;
+  const riskLevel = String(performance?.riskLevel || "").toUpperCase();
+
+  if (riskLevel === "CRITICAL" || (score !== null && score < 60)) {
+    return {
+      label: "RED - High risk",
+      indicator: "Critical",
+      className: "bg-red-100 text-red-700 border-red-200",
+    };
+  }
+
+  if (riskLevel === "WARNING" || (score !== null && score < 80)) {
+    return {
+      label: "YELLOW - Mild risk",
+      indicator: "Warning",
+      className: "bg-amber-100 text-amber-700 border-amber-200",
+    };
+  }
+
+  return {
+    label: "GREEN - Safe ride",
+    indicator: "Safe",
+    className: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  };
 };
 
 const TripSummaryScreen = ({
@@ -146,12 +177,21 @@ const TripSummaryScreen = ({
                       return JSON.parse(ride.driver_performance_json) as {
                         safetyScore?: number;
                         deviationAlerts?: number;
+                        fatigueScore?: number;
+                        distractionScore?: number;
+                        routeDeviationEvents?: number;
+                        emergencyEvents?: number;
+                        warningAlerts?: number;
+                        criticalAlerts?: number;
+                        riskLevel?: string;
                       };
                     } catch {
                       return null;
                     }
                   })()
                 : null;
+
+              const finalStatus = deriveFinalStatus(performance || {});
 
               return (
                 <div
@@ -172,6 +212,49 @@ const TripSummaryScreen = ({
                       <span>
                         {ride.destination_label || "Unknown destination"}
                       </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground">
+                      Trip Overview
+                    </p>
+                    <div className="mt-1 grid grid-cols-3 gap-2">
+                      <span>Time: {new Date(ride.ended_at).toLocaleTimeString()}</span>
+                      <span>
+                        Distance: {ride.distance_km ? `${ride.distance_km.toFixed(2)} km` : "-"}
+                      </span>
+                      <span>Duration: {formatDuration(ride.duration_sec)}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground">
+                      Safety Summary
+                    </p>
+                    <div className="mt-1 grid grid-cols-3 gap-2">
+                      <span>
+                        Fatigue: {typeof performance?.fatigueScore === "number" ? `${performance.fatigueScore.toFixed(1)}%` : "-"}
+                      </span>
+                      <span>
+                        Distraction: {typeof performance?.distractionScore === "number" ? `${performance.distractionScore.toFixed(1)}%` : "-"}
+                      </span>
+                      <span>Risk: {finalStatus.indicator}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground">
+                      Events
+                    </p>
+                    <div className="mt-1 grid grid-cols-3 gap-2">
+                      <span>
+                        Drowsy: {(performance?.warningAlerts || 0) + (performance?.criticalAlerts || 0)}
+                      </span>
+                      <span>
+                        Deviation: {performance?.routeDeviationEvents ?? performance?.deviationAlerts ?? 0}
+                      </span>
+                      <span>Emergency: {performance?.emergencyEvents ?? 0}</span>
                     </div>
                   </div>
 
@@ -198,6 +281,13 @@ const TripSummaryScreen = ({
                       Deviation alerts: {performance?.deviationAlerts ?? "-"}
                     </div>
                   )}
+
+                  <div
+                    className={`mt-2 rounded-xl border px-3 py-2 text-xs font-bold ${finalStatus.className}`}
+                  >
+                    <AlertTriangle size={13} className="mr-1 inline" />
+                    Final Status: {finalStatus.label}
+                  </div>
                 </div>
               );
             })}

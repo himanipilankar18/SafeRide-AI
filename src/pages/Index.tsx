@@ -19,6 +19,7 @@ import PassengerJoinRideScreen, {
 import PassengerRideLiveScreen from "../screens/PassengerRideLiveScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { TripConfig } from "@/screens/HomeScreen";
+import { useTripLifecycle, type TripStatus } from "@/context/TripLifecycleContext";
 
 type Screen =
   | "onboarding"
@@ -35,6 +36,11 @@ type Screen =
   | "summary";
 
 const Index = () => {
+  const {
+    setTripContext,
+    updateTripStatus,
+    resetLifecycle,
+  } = useTripLifecycle();
   const [screen, setScreen] = useState<Screen>("onboarding");
   const [emergencyReturnScreen, setEmergencyReturnScreen] =
     useState<Screen>("monitoring");
@@ -68,6 +74,85 @@ const Index = () => {
     }
 
     return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+  };
+
+  const callTripLifecycle = async (
+    action: "verify" | "otp-verify" | "start" | "end",
+    payload: { tripId: string; driverId?: string | number | null; passengerId?: string | number | null },
+  ) => {
+    const response = await fetch(`${resolveApiBase()}/trip/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data?.success) {
+      throw new Error(data?.message || `Trip lifecycle ${action} failed`);
+    }
+
+    const status = (data?.tripState?.status || data?.transition?.current?.status || "IDLE") as TripStatus;
+    updateTripStatus({
+      status,
+      monitoringActive: Boolean(data?.tripState?.monitoringActive ?? data?.transition?.current?.monitoringActive),
+    });
+    return data;
+  };
+
+  const activatePassengerTripLifecycle = (tripId: string) => {
+    const passengerId = localStorage.getItem("phoneNumber") || "passenger-demo";
+
+    setTripContext({
+      tripId,
+      tripStatus: "VERIFIED",
+      monitoringActive: false,
+    });
+
+    return callTripLifecycle("verify", {
+      tripId,
+      passengerId,
+    })
+      .then(() =>
+        callTripLifecycle("otp-verify", {
+          tripId,
+          passengerId,
+        }),
+      )
+      .then(() =>
+        callTripLifecycle("start", {
+          tripId,
+          passengerId,
+        }),
+      )
+      .catch(() => undefined);
+  };
+
+  const activateDriverTripLifecycle = (tripId: string) => {
+    const driverId = driverCredential || localStorage.getItem("phoneNumber") || "driver-demo";
+
+    setTripContext({
+      tripId,
+      tripStatus: "VERIFIED",
+      monitoringActive: false,
+    });
+
+    return callTripLifecycle("verify", {
+      tripId,
+      driverId,
+    })
+      .then(() =>
+        callTripLifecycle("otp-verify", {
+          tripId,
+          driverId,
+        }),
+      )
+      .then(() =>
+        callTripLifecycle("start", {
+          tripId,
+          driverId,
+        }),
+      )
+      .catch(() => undefined);
   };
 
   const checkDriverOnboardingDone = async (phone: string) => {
@@ -187,7 +272,10 @@ const Index = () => {
       throw new Error(data?.message || "Failed to end trip");
     }
 
+    await callTripLifecycle("end", { tripId: otpCode }).catch(() => undefined);
+
     setHasActiveTrip(false);
+    resetLifecycle();
     setSummaryRefreshKey((prev) => prev + 1);
     setScreen("summary");
   };
@@ -276,10 +364,16 @@ const Index = () => {
                   endLng: trip.destination.lng,
                 });
                 setActiveTripId(String(data.ride.otp_code));
+                setTripContext({
+                  tripId: String(data.ride.otp_code),
+                  tripStatus: "IDLE",
+                  monitoringActive: false,
+                });
 
                 setScreen("passengerRideLive");
               } catch {
                 setJoinedRide(null);
+                resetLifecycle();
                 setScreen("monitoring");
               }
 
@@ -317,6 +411,7 @@ const Index = () => {
                 driverPhone: driverCredential,
               });
               setHasActiveTrip(true);
+              activateDriverTripLifecycle(ride.otpCode);
               setScreen("monitoring");
             }}
           />
@@ -332,6 +427,8 @@ const Index = () => {
               setJoinedRide(ride);
               setActiveTripId(ride.otpCode);
               setHasActiveTrip(true);
+              activatePassengerTripLifecycle(ride.otpCode);
+
               setScreen("passengerRideLive");
             }}
           />
@@ -355,6 +452,7 @@ const Index = () => {
               setJoinedRide(ride);
               setActiveTripId(ride.otpCode);
               setHasActiveTrip(true);
+              activatePassengerTripLifecycle(ride.otpCode);
               setScreen("passengerRideLive");
             }}
           />

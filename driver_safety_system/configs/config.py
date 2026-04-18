@@ -85,7 +85,7 @@ class SystemConfig:
     enable_hardware: bool = True
     serial_port: str = "COM3"
     serial_baudrate: int = 115200
-    hardware_default_state: str = "NORMAL"
+    hardware_default_state: str = "OFF"
     hardware_resend_interval_seconds: float = 1.5
     no_face_hardware_timeout_seconds: float = 2.0
     no_face_hardware_state: str = "WARNING"

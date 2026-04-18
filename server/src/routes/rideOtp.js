@@ -18,6 +18,10 @@ import {
 } from "../services/drowsinessBridge.js";
 import { emitTripEvent } from "../liveTracking.js";
 import { discoverAndStoreRouteGarages } from "../services/garageDiscovery.js";
+import {
+  emitDrowsinessEvent,
+  endTripLifecycle,
+} from "../services/tripLifecycleService.js";
 
 const router = express.Router();
 
@@ -58,7 +62,7 @@ router.post(
 router.post(
   "/drowsiness/analyze",
   asyncHandler(async (req, res) => {
-    const { frameDataUrl, sessionKey, reset = false } = req.body || {};
+    const { frameDataUrl, sessionKey, reset = false, tripId } = req.body || {};
 
     if (!frameDataUrl) {
       return res.status(400).json({
@@ -72,6 +76,60 @@ router.post(
       sessionKey: sessionKey ? String(sessionKey) : null,
       reset: Boolean(reset),
     });
+
+    if (tripId) {
+      const fatigue = Number.isFinite(Number(result?.fatigueScore))
+        ? Number(result.fatigueScore)
+        : 0;
+      const distraction = Number.isFinite(Number(result?.distractionScore))
+        ? Number(result.distractionScore)
+        : 0;
+      const riskScore = Number.isFinite(Number(result?.riskScore))
+        ? Number(result.riskScore)
+        : 0;
+      const blinkRatePerMinute = Number.isFinite(Number(result?.blinkRatePerMinute))
+        ? Number(result.blinkRatePerMinute)
+        : 0;
+      const eyeClosureSeconds = Number.isFinite(Number(result?.eyeClosureSeconds))
+        ? Number(result.eyeClosureSeconds)
+        : 0;
+      const yaw = Number.isFinite(Number(result?.yaw)) ? Number(result.yaw) : 0;
+      const pitch = Number.isFinite(Number(result?.pitch)) ? Number(result.pitch) : 0;
+      const roll = Number.isFinite(Number(result?.roll)) ? Number(result.roll) : 0;
+
+      emitDrowsinessEvent({
+        tripId: String(tripId),
+        level:
+          result?.state === "CRITICAL"
+            ? "CRITICAL"
+            : result?.state === "WARNING"
+              ? "WARNING"
+              : "NORMAL",
+        eyeClosure: fatigue,
+        attention: Math.max(0, Math.min(100, 100 - distraction)),
+        riskScore,
+        fatigueScore: fatigue,
+        distractionScore: distraction,
+        confidence: Number.isFinite(Number(result?.confidence))
+          ? Number(result.confidence)
+          : 0,
+        reason: typeof result?.reason === "string" ? result.reason : "model_update",
+        blinkRatePerMinute,
+        eyeClosureSeconds,
+        yaw,
+        pitch,
+        roll,
+        faceDetected: Boolean(result?.faceDetected),
+        fatigueFlags:
+          result?.fatigueFlags && typeof result.fatigueFlags === "object"
+            ? result.fatigueFlags
+            : {},
+        distractionReason:
+          typeof result?.distractionReason === "string"
+            ? result.distractionReason
+            : "",
+      });
+    }
 
     res.json({
       success: true,
@@ -233,6 +291,8 @@ router.post(
       durationSec,
       driverPerformance,
     });
+
+    await endTripLifecycle({ tripId: String(otpCode).trim() });
 
     emitTripEvent(String(otpCode).trim(), {
       type: "trip_complete",

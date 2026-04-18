@@ -7,17 +7,33 @@ export interface DrowsinessSample {
   state: DrowsinessState;
   fatigueScore: number;
   distractionScore: number;
+  riskScore: number;
   confidence: number;
   timestamp: string;
   reason: string;
+  blinkRatePerMinute: number;
+  eyeClosureSeconds: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  faceDetected: boolean;
+  distractionReason: string;
+  closureState: string;
+  microsleepDetected: boolean;
+  frequentBlinking: boolean;
 }
 
 interface DriverDrowsinessPanelProps {
   active: boolean;
+  tripId?: string;
   onSample: (sample: DrowsinessSample) => void;
 }
 
-const DriverDrowsinessPanel = ({ active, onSample }: DriverDrowsinessPanelProps) => {
+const DriverDrowsinessPanel = ({
+  active,
+  tripId,
+  onSample,
+}: DriverDrowsinessPanelProps) => {
   const [state, setState] = useState<DrowsinessState>("NORMAL");
   const [reason, setReason] = useState("Monitoring started");
   const [cameraReady, setCameraReady] = useState(false);
@@ -147,6 +163,7 @@ const DriverDrowsinessPanel = ({ active, onSample }: DriverDrowsinessPanelProps)
             frameDataUrl,
             sessionKey: sessionKeyRef.current,
             reset: firstInferenceRef.current,
+            tripId,
           }),
         });
 
@@ -171,10 +188,33 @@ const DriverDrowsinessPanel = ({ active, onSample }: DriverDrowsinessPanelProps)
         const confidence = Number.isFinite(Number(result.confidence))
           ? Math.max(0, Math.min(1, Number(result.confidence)))
           : 0.5;
+        const riskScore = Number.isFinite(Number(result.riskScore))
+          ? Math.max(0, Math.min(100, Number(result.riskScore)))
+          : 0;
         const nextReason =
           typeof result.reason === "string" && result.reason.trim()
             ? result.reason
             : "model_update";
+        const blinkRatePerMinute = Number.isFinite(Number(result.blinkRatePerMinute))
+          ? Math.max(0, Number(result.blinkRatePerMinute))
+          : 0;
+        const eyeClosureSeconds = Number.isFinite(Number(result.eyeClosureSeconds))
+          ? Math.max(0, Number(result.eyeClosureSeconds))
+          : 0;
+        const yaw = Number.isFinite(Number(result.yaw)) ? Number(result.yaw) : 0;
+        const pitch = Number.isFinite(Number(result.pitch)) ? Number(result.pitch) : 0;
+        const roll = Number.isFinite(Number(result.roll)) ? Number(result.roll) : 0;
+        const faceDetected = Boolean(result.faceDetected);
+        const distractionReason =
+          typeof result.distractionReason === "string"
+            ? result.distractionReason
+            : "";
+        const closureState =
+          typeof result.fatigueFlags?.closureState === "string"
+            ? result.fatigueFlags.closureState
+            : "open";
+        const microsleepDetected = Boolean(result.fatigueFlags?.microsleep);
+        const frequentBlinking = Boolean(result.fatigueFlags?.frequentBlinking);
 
         setState(nextState);
         setReason(nextReason);
@@ -186,9 +226,20 @@ const DriverDrowsinessPanel = ({ active, onSample }: DriverDrowsinessPanelProps)
           state: nextState,
           fatigueScore: Number((nextFatigue / 100).toFixed(4)),
           distractionScore: Number((nextDistraction / 100).toFixed(4)),
+          riskScore: Number(riskScore.toFixed(2)),
           confidence: Number(confidence.toFixed(4)),
           timestamp: new Date().toISOString(),
           reason: nextReason,
+          blinkRatePerMinute: Number(blinkRatePerMinute.toFixed(2)),
+          eyeClosureSeconds: Number(eyeClosureSeconds.toFixed(2)),
+          yaw: Number(yaw.toFixed(2)),
+          pitch: Number(pitch.toFixed(2)),
+          roll: Number(roll.toFixed(2)),
+          faceDetected,
+          distractionReason,
+          closureState,
+          microsleepDetected,
+          frequentBlinking,
         });
       } catch (error) {
         const message =
@@ -206,7 +257,7 @@ const DriverDrowsinessPanel = ({ active, onSample }: DriverDrowsinessPanelProps)
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [active, apiBase, cameraReady, onSample]);
+  }, [active, apiBase, cameraReady, onSample, tripId]);
 
   return (
     <div className="rounded-2xl border border-white/25 bg-white/95 p-3 text-gray-900 shadow-2xl backdrop-blur">

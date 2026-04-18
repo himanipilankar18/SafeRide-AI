@@ -52,6 +52,7 @@ yellow_on = False
 
 last_buzzer_toggle_ms = time.ticks_ms()
 buzzer_on = False
+failsafe_armed = False
 
 # Button runtime state (pull-up: released=1, pressed=0)
 last_button_state = BUTTON_PIN.value()
@@ -82,7 +83,11 @@ def set_state(state):
     now = time.ticks_ms()
     current_state = state
 
-    if state == "N":
+    if state == "O":
+        all_off()
+        print("STATE: OFF")
+
+    elif state == "N":
         GREEN_LED.on()
         YELLOW_LED.off()
         RED_LED.off()
@@ -148,7 +153,13 @@ def update_buzzer(now_ms):
 def check_timeout(now_ms):
     global failsafe_active
 
+    if not failsafe_armed:
+        return
+
     if failsafe_active:
+        return
+
+    if current_state == "O":
         return
 
     if time.ticks_diff(now_ms, last_valid_cmd_ms) >= FAILSAFE_TIMEOUT_MS:
@@ -174,7 +185,7 @@ def check_button(now_ms):
 # -------------------------
 all_off()
 print("ESP32 ready (quiet test mode)")
-print("Waiting for commands: N / W / C")
+print("Waiting for commands: O / N / W / C")
 
 # -------------------------
 # Main Loop
@@ -191,8 +202,13 @@ while True:
             if ch is not None:
                 cmd = ch.strip().upper()
 
-                if cmd in ("N", "W", "C"):
+                if cmd in ("O", "N", "W", "C"):
                     last_valid_cmd_ms = now_ms
+
+                    if cmd == "O":
+                        failsafe_armed = False
+                    else:
+                        failsafe_armed = True
 
                     if failsafe_active:
                         failsafe_active = False

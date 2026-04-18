@@ -10,6 +10,7 @@ import tripMonitoringRoutes from "./routes/tripMonitoring.js";
 import rideOtpRoutes from "./routes/rideOtp.js";
 import garageRoutes from "./routes/garages.js";
 import emergencyContactsRoutes from "./routes/emergencyContacts.js";
+import tripLifecycleRoutes from "./routes/tripLifecycle.js";
 import { initializeLiveTracking } from "./liveTracking.js";
 import { initDatabase } from "./db/sqlite.js";
 
@@ -36,6 +37,7 @@ app.use("/api/face", faceRoutes);
 app.use("/api/rides", rideOtpRoutes);
 app.use("/api/garages", garageRoutes);
 app.use("/api/driver", emergencyContactsRoutes);
+app.use("/api/trip", tripLifecycleRoutes);
 app.use("/", tripMonitoringRoutes);
 
 // Health check
@@ -77,6 +79,7 @@ const bootstrap = async () => {
     console.log(`📍 Update location API: POST /update-location`);
     console.log(`🏁 End trip API: POST /end-trip`);
     console.log(`📊 Trip status API: GET /trip-status?trip_id=<id>`);
+    console.log(`🧭 Lifecycle API: POST /api/trip/verify | /otp-verify | /start | /end`);
   });
 };
 

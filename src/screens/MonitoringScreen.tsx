@@ -4,7 +4,9 @@ import {
   AlertTriangle,
   Clock,
   LocateFixed,
+  MapPin,
   Phone,
+  Route,
   Users,
   X,
 } from "lucide-react";
@@ -53,6 +55,19 @@ type DeviationState = {
 type DriverIncidentState = {
   reason: "puncture" | "mechanical";
   reportedAt: string;
+};
+
+type DriverSlide = "map" | "drowsiness" | "summary";
+
+type DriverRideSummary = {
+  id: number;
+  otp_code: string;
+  source_label: string | null;
+  destination_label: string | null;
+  distance_km: number | null;
+  duration_sec: number | null;
+  ended_at: string;
+  driver_performance_json: string | null;
 };
 
 const EMERGENCY_CONTACTS_KEY = "saferide_emergency_contacts";
@@ -260,6 +275,7 @@ const MonitoringScreen = ({
   ]);
   const [expectedRoute, setExpectedRoute] = useState<[number, number][]>([]);
   const [mode, setMode] = useState<MapMode>("2d");
+  const [driverSlide, setDriverSlide] = useState<DriverSlide>("map");
   const [heading, setHeading] = useState<number | null>(null);
   const [followVehicle, setFollowVehicle] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -306,12 +322,19 @@ const MonitoringScreen = ({
     useState<DrowsinessSample | null>(null);
   const [driverBehaviorScore, setDriverBehaviorScore] = useState(100);
   const [didAutoCompleteRide, setDidAutoCompleteRide] = useState(false);
+  const [tripDeviationEvents, setTripDeviationEvents] = useState(0);
+  const [tripEmergencyEvents, setTripEmergencyEvents] = useState(0);
+  const [driverTripSummaries, setDriverTripSummaries] = useState<
+    DriverRideSummary[]
+  >([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const drowsinessAggregateRef = useRef<DriverScoreAggregate>(
     emptyDriverAggregate(),
   );
   const lastDrowsinessStateRef = useRef<DrowsinessState | null>(null);
   const completionTriggeredRef = useRef(false);
+  const tripStartTimeRef = useRef(Date.now());
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -342,6 +365,8 @@ const MonitoringScreen = ({
       score,
       avgFatigue: Number(avgFatigue.toFixed(4)),
       avgDistraction: Number(avgDistraction.toFixed(4)),
+      fatigueScore: Number((avgFatigue * 100).toFixed(1)),
+      distractionScore: Number((avgDistraction * 100).toFixed(1)),
       warningEvents: agg.stateCounts.WARNING,
       criticalEvents: agg.stateCounts.CRITICAL,
       totalSamples: agg.samples,
@@ -384,12 +409,43 @@ const MonitoringScreen = ({
     completionTriggeredRef.current = true;
 
     const scoreSnapshot = computeScoreSnapshot();
+    const durationSec = Math.max(
+      1,
+      Math.round((Date.now() - tripStartTimeRef.current) / 1000),
+    );
+    const distanceKm =
+      routePath.length > 1
+        ? routePath.reduce((total, point, index) => {
+            if (index === 0) {
+              return 0;
+            }
+
+            const previous = {
+              lat: routePath[index - 1][0],
+              lng: routePath[index - 1][1],
+            };
+            const current = { lat: point[0], lng: point[1] };
+            return total + haversineKm(previous, current);
+          }, 0)
+        : 0;
+    const riskLevel =
+      scoreSnapshot.score < 60
+        ? "CRITICAL"
+        : scoreSnapshot.score < 80
+          ? "WARNING"
+          : "SAFE";
+
     const summaryPayload = {
       completedAt: new Date().toISOString(),
       rideOtpCode: tripConfig.rideOtpCode || null,
       destinationLabel: tripConfig.destinationLabel,
       sourceLabel: tripConfig.sourceLabel,
       reason,
+      durationSec,
+      distanceKm: Number(distanceKm.toFixed(3)),
+      riskLevel,
+      routeDeviationEvents: tripDeviationEvents,
+      emergencyEvents: tripEmergencyEvents,
       ...scoreSnapshot,
     };
 
@@ -407,6 +463,24 @@ const MonitoringScreen = ({
 
     if (tripConfig.rideOtpCode) {
       try {
+        await fetch(`${API_BASE_URL}/rides/end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            otpCode: tripConfig.rideOtpCode,
+            endedBy: "driver",
+            finalLat: currentLocation.lat,
+            finalLng: currentLocation.lng,
+            distanceKm,
+            durationSec,
+            driverPerformance: summaryPayload,
+          }),
+        });
+      } catch {
+        // Summary sync is best-effort.
+      }
+
+      try {
         await fetch(`${API_BASE_URL}/rides/complete`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -422,6 +496,16 @@ const MonitoringScreen = ({
       } catch {
         // Completion sync is best-effort; local summary remains available.
       }
+
+      try {
+        await fetch(`${API_BASE_URL}/trip/end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tripId: tripConfig.rideOtpCode }),
+        });
+      } catch {
+        // Lifecycle shutdown is best-effort here; backend also handles cleanup on trip_complete.
+      }
     }
 
     send("trip_complete", {
@@ -432,6 +516,19 @@ const MonitoringScreen = ({
 
     onNavigate("summary");
   };
+
+  useEffect(() => {
+    if (!hasActiveTrip || !isDriverMode) {
+      return;
+    }
+
+    tripStartTimeRef.current = Date.now();
+    setTripDeviationEvents(0);
+    setTripEmergencyEvents(0);
+    completionTriggeredRef.current = false;
+    drowsinessAggregateRef.current = emptyDriverAggregate();
+    lastDrowsinessStateRef.current = null;
+  }, [hasActiveTrip, isDriverMode, tripConfig.rideOtpCode]);
 
   useEffect(() => {
     if (!isDriverMode) {
@@ -520,6 +617,9 @@ const MonitoringScreen = ({
 
       setDispatchStatus(data.message || "Emergency notifications sent.");
       setDispatchStatusType("success");
+      if (isDriverMode) {
+        setTripEmergencyEvents((prev) => prev + 1);
+      }
     } catch (error) {
       setDispatchStatus(
         error instanceof Error
@@ -913,6 +1013,32 @@ const MonitoringScreen = ({
         ]
   ) as [number, number][];
 
+  const formatDuration = (durationSec: number | null) => {
+    if (!durationSec || durationSec <= 0) {
+      return "-";
+    }
+
+    const mins = Math.floor(durationSec / 60);
+    const secs = durationSec % 60;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  };
+
+  const getRiskBadge = (safetyScore: number | null) => {
+    if (typeof safetyScore !== "number") {
+      return { label: "Unknown", cls: "bg-gray-100 text-gray-700" };
+    }
+
+    if (safetyScore < 60) {
+      return { label: "Critical", cls: "bg-red-100 text-red-700" };
+    }
+
+    if (safetyScore < 80) {
+      return { label: "Warning", cls: "bg-amber-100 text-amber-700" };
+    }
+
+    return { label: "Safe", cls: "bg-emerald-100 text-emerald-700" };
+  };
+
   useEffect(() => {
     if (!hasActiveTrip || !isDriverMode || !tripConfig.rideOtpCode) {
       return;
@@ -969,6 +1095,52 @@ const MonitoringScreen = ({
 
     finalizeDriverRide("destination_reached");
   }, [finalizeDriverRide, hasActiveTrip, isDriverMode, isNearDestination]);
+
+  useEffect(() => {
+    if (!isDriverMode || !hasActiveTrip) {
+      setDriverTripSummaries([]);
+      return;
+    }
+
+    const driverPhone = (tripConfig.driverPhone || "").trim();
+    if (!driverPhone) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSummary = async () => {
+      setSummaryLoading(true);
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/rides/history?role=driver&phone=${encodeURIComponent(driverPhone)}`,
+        );
+        const data = await response.json();
+        if (cancelled) return;
+
+        if (!response.ok || !data?.success || !Array.isArray(data.rides)) {
+          setDriverTripSummaries([]);
+          return;
+        }
+
+        setDriverTripSummaries(data.rides.slice(0, 12));
+      } catch {
+        if (!cancelled) {
+          setDriverTripSummaries([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSummaryLoading(false);
+        }
+      }
+    };
+
+    loadSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API_BASE_URL, hasActiveTrip, isDriverMode, tripConfig.driverPhone]);
 
   useEffect(() => {
     if (!hasActiveTrip || mode === "offline" || routeLine.length === 0) {
@@ -1034,6 +1206,9 @@ const MonitoringScreen = ({
     if (shouldNotify) {
       setShowDeviationPanel(true);
       lastDeviationNotifyRef.current = now;
+      if (isDriverMode) {
+        setTripDeviationEvents((prev) => prev + 1);
+      }
 
       send("deviation_alert", {
         severity,
@@ -1149,22 +1324,49 @@ const MonitoringScreen = ({
         </div>
       )}
 
-      <div className="absolute left-4 top-36 z-[1000] flex rounded-full bg-white/95 p-1 shadow-xl">
-        {(["2d", "offline"] as MapMode[]).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setMode(item)}
-            className={`rounded-full px-3 py-1.5 text-xs font-bold uppercase ${
-              mode === item ? "bg-black text-white" : "text-gray-700"
-            }`}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
+      {hasActiveTrip && isDriverMode && (
+        <div className="absolute left-4 right-4 top-24 z-[1010]">
+          <div className="flex rounded-xl border border-white/20 bg-black/55 p-1 text-white backdrop-blur">
+            {([
+              { key: "map", label: "Map" },
+              { key: "drowsiness", label: "Drowsiness" },
+              { key: "summary", label: "Trip Summary" },
+            ] as Array<{ key: DriverSlide; label: string }>).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setDriverSlide(item.key)}
+                className={`flex-1 rounded-lg px-2 py-2 text-[11px] font-bold ${
+                  driverSlide === item.key
+                    ? "bg-white text-black"
+                    : "text-white/85"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {hasActiveTrip && (
+      {(!isDriverMode || driverSlide === "map") && (
+        <div className="absolute left-4 top-36 z-[1000] flex rounded-full bg-white/95 p-1 shadow-xl">
+          {(["2d", "offline"] as MapMode[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setMode(item)}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold uppercase ${
+                mode === item ? "bg-black text-white" : "text-gray-700"
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasActiveTrip && (!isDriverMode || driverSlide === "map") && (
         <div className="absolute right-4 top-36 z-[1000] flex flex-col gap-3">
           {isDriverMode && (
             <button
@@ -1173,6 +1375,15 @@ const MonitoringScreen = ({
               className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-gray-900 shadow-xl"
             >
               {showRoadsidePanel ? "Hide Garage" : "Find Garage"}
+            </button>
+          )}
+          {isDriverMode && (
+            <button
+              type="button"
+              onClick={() => finalizeDriverRide("manual")}
+              className="rounded-full bg-red-600 px-3 py-2 text-[11px] font-bold text-white shadow-xl"
+            >
+              End Trip
             </button>
           )}
           <button
@@ -1189,7 +1400,7 @@ const MonitoringScreen = ({
         </div>
       )}
 
-      {hasActiveTrip && isDriverMode && (
+      {hasActiveTrip && isDriverMode && driverSlide === "drowsiness" && (
         <div className="absolute left-4 right-4 top-52 z-[1080]">
           <div className="mb-2 rounded-xl border border-white/25 bg-black/55 px-3 py-2 text-white shadow-lg backdrop-blur">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
@@ -1209,19 +1420,158 @@ const MonitoringScreen = ({
           </div>
           <DriverDrowsinessPanel
             active={hasActiveTrip && isDriverMode}
+            tripId={tripConfig.rideOtpCode || tripId}
             onSample={handleDrowsinessSample}
           />
         </div>
       )}
 
-      {hasActiveTrip && locationError && (
+      {hasActiveTrip && isDriverMode && driverSlide === "summary" && (
+        <div className="absolute inset-x-4 top-36 bottom-24 z-[1090] overflow-y-auto rounded-2xl border border-white/20 bg-black/65 p-4 text-white backdrop-blur">
+          <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/70">
+            Trip Summary
+          </p>
+
+          {summaryLoading ? (
+            <p className="mt-3 text-sm text-white/75">Loading trip cards...</p>
+          ) : driverTripSummaries.length === 0 ? (
+            <p className="mt-3 text-sm text-white/75">
+              No completed trip summaries yet.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {driverTripSummaries.map((ride) => {
+                const performance = ride.driver_performance_json
+                  ? (() => {
+                      try {
+                        return JSON.parse(ride.driver_performance_json) as {
+                          safetyScore?: number;
+                        };
+                      } catch {
+                        return null;
+                      }
+                    })()
+                  : null;
+
+                const safetyScore =
+                  typeof performance?.safetyScore === "number"
+                    ? performance.safetyScore
+                    : null;
+                const risk = getRiskBadge(safetyScore);
+                const liveDurationSec = Math.max(
+                  1,
+                  Math.round((Date.now() - tripStartTimeRef.current) / 1000),
+                );
+                const liveDistanceKm =
+                  routePath.length > 1
+                    ? routePath.reduce((total, point, index) => {
+                        if (index === 0) {
+                          return 0;
+                        }
+
+                        const previous = {
+                          lat: routePath[index - 1][0],
+                          lng: routePath[index - 1][1],
+                        };
+                        const current = { lat: point[0], lng: point[1] };
+                        return total + haversineKm(previous, current);
+                      }, 0)
+                    : 0;
+                const liveRisk = getRiskBadge(driverBehaviorScore);
+                const liveSnapshot = computeScoreSnapshot();
+
+                return (
+                  <div
+                    key={ride.id}
+                    className="rounded-xl border border-white/20 bg-white/10 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-white">
+                        {new Date(ride.ended_at).toLocaleDateString()}
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-bold ${risk.cls}`}
+                      >
+                        {risk.label}
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-sm font-bold">
+                      {ride.source_label || "Source"} → {ride.destination_label || "Destination"}
+                    </p>
+
+                    <div className="mt-3 rounded-lg bg-black/35 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-white/70">
+                        Trip Overview
+                      </p>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
+                        <span>Time: {new Date(ride.ended_at).toLocaleTimeString()}</span>
+                        <span>Distance: {liveDistanceKm.toFixed(2)} km</span>
+                        <span>Duration: {formatDuration(liveDurationSec)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-white/85">
+                      <div className="rounded-lg bg-black/35 px-2 py-1.5">
+                        <Clock size={12} className="mr-1 inline" />
+                        {formatDuration(ride.duration_sec)}
+                      </div>
+                      <div className="rounded-lg bg-black/35 px-2 py-1.5">
+                        <Route size={12} className="mr-1 inline" />
+                        {ride.distance_km ? `${ride.distance_km.toFixed(2)} km` : "-"}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-white/80">
+                      <span>
+                        Safety: {safetyScore !== null ? `${Math.round(safetyScore)}/100` : "-"}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin size={11} /> {ride.otp_code}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 rounded-lg bg-black/35 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-white/70">
+                        Safety Summary
+                      </p>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
+                        <span>Fatigue: {liveSnapshot.fatigueScore.toFixed(1)}%</span>
+                        <span>Distraction: {liveSnapshot.distractionScore.toFixed(1)}%</span>
+                        <span>Risk: {liveRisk.label}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 rounded-lg bg-black/35 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-white/70">
+                        Events
+                      </p>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
+                        <span>Drowsy alerts: {liveSnapshot.warningAlerts + liveSnapshot.criticalAlerts}</span>
+                        <span>Route deviations: {tripDeviationEvents}</span>
+                        <span>Emergency: {tripEmergencyEvents}</span>
+                      </div>
+                    </div>
+
+                    <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${liveRisk.cls}`}>
+                      Final Status: {liveRisk.label === "Safe" ? "GREEN - Safe ride" : liveRisk.label === "Warning" ? "YELLOW - Mild risk" : "RED - High risk"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {hasActiveTrip && locationError && (!isDriverMode || driverSlide === "map") && (
         <div className="absolute left-4 right-4 top-[31rem] z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
           <AlertTriangle size={14} className="mr-2 inline" />
           {locationError}
         </div>
       )}
 
-      {hasActiveTrip && isDriverMode && showRoadsidePanel && (
+      {hasActiveTrip && isDriverMode && driverSlide === "map" && showRoadsidePanel && (
         <div className="absolute inset-x-4 top-[31rem] z-[1120] rounded-2xl border border-amber-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">

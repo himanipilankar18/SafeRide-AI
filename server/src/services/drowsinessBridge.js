@@ -1,6 +1,6 @@
 import path from "path";
 import readline from "readline";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.DROWSINESS_INFERENCE_TIMEOUT_MS || 12000);
@@ -23,12 +23,58 @@ class DrowsinessBridge {
     return `req_${Date.now()}_${this.requestCounter}`;
   }
 
-  _resolvePythonExecutable() {
+  _hasUsablePython(executable, args = ["--version"]) {
+    try {
+      const result = spawnSync(executable, args, {
+        stdio: "ignore",
+        shell: false,
+      });
+
+      return result?.status === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  _resolvePythonCommand() {
     if (process.env.DROWSINESS_PYTHON_EXEC) {
-      return process.env.DROWSINESS_PYTHON_EXEC;
+      return {
+        executable: process.env.DROWSINESS_PYTHON_EXEC,
+        prefixArgs: [],
+      };
     }
 
-    return "python3";
+    const isWindows = process.platform === "win32";
+
+    if (isWindows) {
+      if (this._hasUsablePython("py", ["-3", "--version"])) {
+        return { executable: "py", prefixArgs: ["-3"] };
+      }
+
+      if (this._hasUsablePython("python")) {
+        return { executable: "python", prefixArgs: [] };
+      }
+
+      if (this._hasUsablePython("python3")) {
+        return { executable: "python3", prefixArgs: [] };
+      }
+
+      throw new Error(
+        "Python runtime not found. Install Python and ensure either 'py -3' or 'python' is available in PATH, or set DROWSINESS_PYTHON_EXEC.",
+      );
+    }
+
+    if (this._hasUsablePython("python3")) {
+      return { executable: "python3", prefixArgs: [] };
+    }
+
+    if (this._hasUsablePython("python")) {
+      return { executable: "python", prefixArgs: [] };
+    }
+
+    throw new Error(
+      "Python runtime not found. Install Python 3 and ensure 'python3' is in PATH, or set DROWSINESS_PYTHON_EXEC.",
+    );
   }
 
   _resolveWorkerPath() {
@@ -61,10 +107,10 @@ class DrowsinessBridge {
     }
 
     await new Promise((resolve, reject) => {
-      const pythonExec = this._resolvePythonExecutable();
+      const { executable, prefixArgs } = this._resolvePythonCommand();
       const workerPath = this._resolveWorkerPath();
 
-      const proc = spawn(pythonExec, [workerPath], {
+      const proc = spawn(executable, [...prefixArgs, workerPath], {
         cwd: APP_ROOT,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -181,5 +227,7 @@ export const analyzeDrowsinessFrame = async ({ frameDataUrl, sessionKey, reset =
   bridge.analyze({ frameDataUrl, sessionKey, reset });
 
 export const resetDrowsinessSession = async (sessionKey) => bridge.reset(sessionKey);
+
+export const startDrowsinessBridge = async () => bridge.ensureStarted();
 
 export const stopDrowsinessBridge = async () => bridge.stop();

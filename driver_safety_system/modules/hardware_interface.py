@@ -100,6 +100,9 @@ class HardwareInterface:
 
         normalized = str(state).strip().upper()
         state_aliases = {
+            'OFF': 'OFF',
+            'IDLE': 'OFF',
+            'END_TRIP': 'OFF',
             'NORMAL': 'NORMAL',
             'ALERT': 'NORMAL',
             'AWAKE': 'NORMAL',
@@ -138,6 +141,7 @@ class HardwareInterface:
 
         # Map normalized state to protocol command
         state_map = {
+            "OFF": (b"O", "OFF"),
             "NORMAL": (b"N", "NORMAL"),
             "WARNING": (b"W", "WARNING"),
             "CRITICAL": (b"C", "CRITICAL"),
