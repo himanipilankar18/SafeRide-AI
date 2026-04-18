@@ -291,7 +291,7 @@ const EmergencyScreen = ({
       });
 
       const data = await response.json();
-      if (!response.ok && !data.partialSuccess) {
+      if (!response.ok && !data.partialSuccess && !data.partial) {
         const failureReasons = Array.isArray(data?.results)
           ? data.results
               .filter(
@@ -316,8 +316,21 @@ const EmergencyScreen = ({
         );
       }
 
+      const sentCount = Number(data?.sentCount || 0);
+      const totalRecipients = Number(
+        data?.totalRecipients || data?.results?.length || selectedContacts.length,
+      );
+      const failedCount = Math.max(0, totalRecipients - sentCount);
+      const partial = Boolean(data?.partial || (sentCount > 0 && failedCount > 0));
+
       setAlertStatus(data.message || "Emergency alerts sent.");
-      setAlertStatusType(data.partialSuccess ? "warning" : "success");
+      if (sentCount === 0) {
+        setAlertStatusType("error");
+      } else if (partial) {
+        setAlertStatusType("warning");
+      } else {
+        setAlertStatusType("success");
+      }
     } catch (error) {
       setAlertStatus(
         error instanceof Error

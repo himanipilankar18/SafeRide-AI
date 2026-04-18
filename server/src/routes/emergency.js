@@ -249,6 +249,9 @@ router.post("/alert", async (req, res) => {
     );
 
     const sentCount = results.filter((result) => result.success).length;
+    const totalRecipients = recipients.length;
+    const failedCount = totalRecipients - sentCount;
+    const partial = sentCount > 0 && failedCount > 0;
     const failedResults = results.filter((result) => !result.success);
     const firstFailure = failedResults[0];
     const detailMessage =
@@ -256,20 +259,23 @@ router.post("/alert", async (req, res) => {
         ? `${firstFailure.error} (recipient: ${firstFailure.contact.phone})`
         : firstFailure?.error || null;
 
-    let message = `Sent ${sentCount} of ${recipients.length} emergency alerts`;
+    let message = `Sent ${sentCount} of ${totalRecipients} emergency alerts`;
     if (sentCount === 0 && detailMessage) {
       message = `No SOS SMS sent. ${detailMessage}`;
-    } else if (sentCount < recipients.length && detailMessage) {
+    } else if (partial && detailMessage) {
       message = `${message}. Some recipients failed: ${detailMessage}`;
     }
 
-    res.status(200).json({
+        res.status(200).json({
       success: sentCount > 0,
-      partialSuccess: sentCount > 0 && failedResults.length > 0,
+      partial,
+      partialSuccess: partial,
       message,
       sentCount,
+      failedCount,
+      totalRecipients,
       results,
-    });
+        });
 
     const otpCode = String(trip?.otpCode || trip?.otp_code || "").trim();
     if (otpCode) {

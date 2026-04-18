@@ -1016,6 +1016,8 @@ const MonitoringScreen = ({
   const isNearDestination =
     distanceToDestination <= destinationReachedThresholdKm;
   const etaMinutes = Math.max(1, Math.round(distanceToDestination * 3.2));
+  const isDriverDrowsinessView =
+    hasActiveTrip && isDriverMode && driverSlide === "drowsiness";
   const routeLine = (
     expectedRoute.length > 0
       ? expectedRoute
@@ -1273,10 +1275,15 @@ const MonitoringScreen = ({
       animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
       exit={{ opacity: 0, y: -18, scale: 0.985, filter: "blur(8px)" }}
       transition={screenTransition}
-      className="absolute inset-0 overflow-hidden bg-black"
+      className={`absolute inset-0 overflow-hidden ${isDriverDrowsinessView ? "bg-slate-100" : "bg-black"}`}
     >
       <div className="absolute inset-0 z-0">
-        {mode === "offline" ? (
+        {isDriverDrowsinessView ? (
+          <div className="absolute inset-0 bg-slate-100">
+            <div className="absolute -left-24 -top-20 h-64 w-64 rounded-full bg-sky-100/70 blur-3xl" />
+            <div className="absolute -right-20 top-1/3 h-60 w-60 rounded-full bg-emerald-100/70 blur-3xl" />
+          </div>
+        ) : mode === "offline" ? (
           <OfflineMap />
         ) : (
           <div className="absolute inset-0 z-0 overflow-hidden">
@@ -1328,16 +1335,30 @@ const MonitoringScreen = ({
 
       {hasActiveTrip ? (
         <div className="absolute left-4 right-4 top-5 z-[1000]">
-          <div className="rounded-2xl bg-black/65 px-4 py-3 text-white shadow-xl backdrop-blur-md border border-white/20">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">
+          <div
+            className={`rounded-2xl px-4 py-3 shadow-xl border ${
+              isDriverDrowsinessView
+                ? "border-slate-200 bg-white/95 text-slate-900"
+                : "border-white/20 bg-black/65 text-white backdrop-blur-md"
+            }`}
+          >
+            <p
+              className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                isDriverDrowsinessView ? "text-slate-500" : "text-white/70"
+              }`}
+            >
               Ride Mode Active
             </p>
             <div className="mt-1 flex items-center justify-between gap-3">
               <p className="truncate text-sm font-bold">
                 {tripConfig.sourceLabel}
               </p>
-              <div className="h-px flex-1 bg-white/25" />
-              <p className="truncate text-sm font-bold text-right">
+              <div
+                className={`h-px flex-1 ${
+                  isDriverDrowsinessView ? "bg-slate-300" : "bg-white/25"
+                }`}
+              />
+              <p className="truncate text-right text-sm font-bold">
                 {tripConfig.destinationLabel}
               </p>
             </div>
@@ -1356,22 +1377,30 @@ const MonitoringScreen = ({
 
       {hasActiveTrip && isDriverMode && (
         <div className="absolute left-4 right-4 top-24 z-[1010]">
-          <div className="flex rounded-xl border border-white/20 bg-black/55 p-1 text-white backdrop-blur">
-            {(
-              [
-                { key: "map", label: "Map" },
-                { key: "drowsiness", label: "Drowsiness" },
-                { key: "summary", label: "Trip Summary" },
-              ] as Array<{ key: DriverSlide; label: string }>
-            ).map((item) => (
+          <div
+            className={`flex rounded-xl p-1 ${
+              isDriverDrowsinessView
+                ? "border border-slate-200 bg-white text-slate-900 shadow"
+                : "border border-white/20 bg-black/55 text-white backdrop-blur"
+            }`}
+          >
+            {([
+              { key: "map", label: "Map" },
+              { key: "drowsiness", label: "Drowsiness" },
+              { key: "summary", label: "Trip Summary" },
+            ] as Array<{ key: DriverSlide; label: string }>).map((item) => (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setDriverSlide(item.key)}
                 className={`flex-1 rounded-lg px-2 py-2 text-[11px] font-bold ${
                   driverSlide === item.key
-                    ? "bg-white text-black"
-                    : "text-white/85"
+                    ? isDriverDrowsinessView
+                      ? "bg-slate-900 text-white"
+                      : "bg-white text-black"
+                    : isDriverDrowsinessView
+                      ? "text-slate-600"
+                      : "text-white/85"
                 }`}
               >
                 {item.label}
@@ -1433,28 +1462,52 @@ const MonitoringScreen = ({
       )}
 
       {hasActiveTrip && isDriverMode && driverSlide === "drowsiness" && (
-        <div className="absolute left-4 right-4 top-52 z-[1080]">
-          <div className="mb-2 rounded-xl border border-white/25 bg-black/55 px-3 py-2 text-white shadow-lg backdrop-blur">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
-              Driver Ride Safety Score
-            </p>
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <p className="text-sm font-bold">{driverBehaviorScore}/100</p>
-              <p className="text-[11px] font-medium text-white/80">
-                {latestDrowsinessSample?.state || "NORMAL"}
-              </p>
+        <div className="absolute inset-x-4 top-40 bottom-28 z-[1080] overflow-y-auto">
+          <div className="mx-auto max-w-3xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  Driver Drowsiness Monitoring
+                </p>
+                <p className="text-sm font-bold text-slate-900">
+                  Safety Score {driverBehaviorScore}/100
+                </p>
+              </div>
+              <span
+                className={`rounded-full border px-2 py-1 text-[11px] font-bold ${
+                  (latestDrowsinessSample?.state || "NORMAL") === "CRITICAL"
+                    ? "border-red-200 bg-red-100 text-red-700"
+                    : (latestDrowsinessSample?.state || "NORMAL") === "WARNING"
+                      ? "border-amber-200 bg-amber-100 text-amber-700"
+                      : "border-emerald-200 bg-emerald-100 text-emerald-700"
+                }`}
+              >
+                {(latestDrowsinessSample?.state || "NORMAL") === "CRITICAL"
+                  ? "High risk"
+                  : (latestDrowsinessSample?.state || "NORMAL") === "WARNING"
+                    ? "Watch closely"
+                    : "Normal"}
+              </span>
             </div>
+
             {didAutoCompleteRide && (
-              <p className="mt-1 text-[11px] font-semibold text-emerald-200">
+              <p className="mb-2 text-[11px] font-semibold text-emerald-700">
                 Destination reached. Ride completion synced.
               </p>
             )}
+
+            <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+              <DriverDrowsinessPanel
+                active={hasActiveTrip && isDriverMode}
+                tripId={tripConfig.rideOtpCode || tripId}
+                onSample={handleDrowsinessSample}
+              />
+            </div>
+
+            <div className="mt-3 rounded-xl bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+              Monitoring is active only during ACTIVE trip state.
+            </div>
           </div>
-          <DriverDrowsinessPanel
-            active={hasActiveTrip && isDriverMode}
-            tripId={tripConfig.rideOtpCode || tripId}
-            onSample={handleDrowsinessSample}
-          />
         </div>
       )}
 
@@ -1868,7 +1921,13 @@ const MonitoringScreen = ({
       {!hasActiveTrip ? (
         <EmptyRideState onNavigate={onNavigate} />
       ) : (
-        <div className="absolute inset-x-0 bottom-0 z-[1100] rounded-t-3xl bg-white px-5 pb-24 pt-4 text-gray-950 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]">
+        <div
+          className={`absolute inset-x-0 bottom-0 z-[1100] rounded-t-3xl bg-white px-5 text-gray-950 ${
+            isDriverDrowsinessView
+              ? "pb-6 pt-3 shadow-[0_-4px_18px_rgba(0,0,0,0.12)]"
+              : "pb-24 pt-4 shadow-[0_-10px_30px_rgba(0,0,0,0.22)]"
+          }`}
+        >
           <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-gray-300" />
           <div className="flex items-center justify-between">
             <button
@@ -1896,20 +1955,24 @@ const MonitoringScreen = ({
             <button
               type="button"
               onClick={() => setShowEmergencyAlert(true)}
-              className="grid h-11 w-11 place-items-center rounded-full bg-red-600 text-white shadow-lg"
+              className={`grid place-items-center rounded-full bg-red-600 text-white shadow-lg ${
+                isDriverDrowsinessView ? "h-10 w-10" : "h-11 w-11"
+              }`}
               aria-label="Emergency"
             >
-              <Phone size={21} />
+              <Phone size={isDriverDrowsinessView ? 18 : 21} />
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowEmergencyAlert(true)}
-            className="mt-3 w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg"
-          >
-            Open Emergency Alert
-          </button>
+          {!isDriverDrowsinessView && (
+            <button
+              type="button"
+              onClick={() => setShowEmergencyAlert(true)}
+              className="mt-3 w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg"
+            >
+              Open Emergency Alert
+            </button>
+          )}
         </div>
       )}
 

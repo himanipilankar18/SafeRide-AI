@@ -67,6 +67,16 @@ const DriverDrowsinessPanel = ({
     return "bg-emerald-100 text-emerald-700 border-emerald-200";
   }, [state]);
 
+  const warningPillClass =
+    state === "CRITICAL"
+      ? "bg-red-100 text-red-700 border-red-200"
+      : state === "WARNING"
+        ? "bg-amber-100 text-amber-700 border-amber-200"
+        : "bg-emerald-100 text-emerald-700 border-emerald-200";
+
+  const eyeClosureLevel =
+    fatigueScore >= 65 ? "High" : fatigueScore >= 35 ? "Medium" : "Low";
+
   useEffect(() => {
     let cancelled = false;
 
@@ -260,45 +270,73 @@ const DriverDrowsinessPanel = ({
   }, [active, apiBase, cameraReady, onSample, tripId]);
 
   return (
-    <div className="rounded-2xl border border-white/25 bg-white/95 p-3 text-gray-900 shadow-2xl backdrop-blur">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-gray-700">
-          Drowsiness Monitor
-        </p>
-        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${badgeClass}`}>
-          {state}
-        </span>
-      </div>
-
-      <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 bg-black">
-        <video ref={videoRef} autoPlay playsInline muted className="h-28 w-full object-cover" />
+    <div className="text-gray-900">
+      <div className="relative aspect-video overflow-hidden rounded-2xl bg-black shadow-[0_12px_35px_rgba(15,23,42,0.22)]">
+        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
         <canvas ref={canvasRef} className="hidden" />
+
+        <div className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+          <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+          LIVE
+        </div>
+
+        <div className="absolute right-3 top-3">
+          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold ${warningPillClass}`}>
+            {state === "CRITICAL" ? <AlertTriangle size={11} /> : <Shield size={11} />}
+            {state}
+          </span>
+        </div>
+
+        <div className="absolute bottom-3 left-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm">
+          Drowsiness Monitor
+        </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <div className="rounded-lg bg-gray-100 px-2 py-1.5">
-          <p className="text-[10px] font-semibold text-gray-500">Fatigue</p>
-          <p className="text-xs font-extrabold text-gray-800">{Math.round(fatigueScore)}%</p>
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        <div>
+          <p className="text-[11px] font-medium text-gray-500">Fatigue</p>
+          <p className="text-xl font-bold text-gray-900">{Math.round(fatigueScore)}%</p>
+          <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200">
+            <div
+              className="h-1.5 rounded-full bg-amber-500"
+              style={{ width: `${Math.round(fatigueScore)}%` }}
+            />
+          </div>
         </div>
-        <div className="rounded-lg bg-gray-100 px-2 py-1.5">
-          <p className="text-[10px] font-semibold text-gray-500">Attention Drift</p>
-          <p className="text-xs font-extrabold text-gray-800">{Math.round(distractionScore)}%</p>
+
+        <div>
+          <p className="text-[11px] font-medium text-gray-500">Attention Drift</p>
+          <p className="text-xl font-bold text-gray-900">{Math.round(distractionScore)}%</p>
+          <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200">
+            <div
+              className="h-1.5 rounded-full bg-sky-500"
+              style={{ width: `${Math.round(distractionScore)}%` }}
+            />
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[11px] font-medium text-gray-500">Eye Closure</p>
+          <p className="text-xl font-bold text-gray-900">{eyeClosureLevel}</p>
+          <p className="mt-1 text-[11px] font-medium text-gray-500">
+            {cameraReady ? "Tracking" : "Starting"}
+          </p>
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] font-medium text-gray-600">
+      <p className="mt-3 text-xs font-medium text-gray-600">
         {cameraError ? cameraError : reason}
       </p>
 
-      <div className="mt-2 flex items-center gap-2 text-[10px] font-semibold text-gray-500">
+      <div className="mt-2 flex items-center gap-3 text-[11px] font-semibold text-gray-500">
         <span className="inline-flex items-center gap-1">
-          <Camera size={12} /> {cameraReady ? "Live" : "Starting"}
+          <Camera size={12} /> {cameraReady ? "Camera live" : "Camera starting"}
         </span>
         <span className="inline-flex items-center gap-1">
-          <Eye size={12} /> In-app only
+          <Eye size={12} /> In-app analysis
         </span>
-        <span className="inline-flex items-center gap-1">
-          {state === "CRITICAL" ? <AlertTriangle size={12} /> : <Shield size={12} />} Alert ready
+        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${badgeClass}`}>
+          Alert ready
         </span>
       </div>
     </div>
