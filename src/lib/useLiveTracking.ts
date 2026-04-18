@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 
 export interface LocationUpdate {
   lat: number;
@@ -21,6 +21,8 @@ export interface LiveTrackingEvent {
     | "location_update"
     | "deviation_alert"
     | "driver_alert"
+    | "driver_incident"
+    | "emergency_alert"
     | "trip_joined"
     | "user_disconnected"
     | "trip_complete"
@@ -78,7 +80,10 @@ export const useLiveTracking = (
 ) => {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const isUnmountedRef = useRef(false);
   const maxReconnectAttempts = 5;
+  const [isConnected, setIsConnected] = useState(false);
 
   const send = useCallback(
     (type: string, data?: any) => {
@@ -102,13 +107,35 @@ export const useLiveTracking = (
       onError: (error: string) => void,
     ) => {
       return new Promise<void>((resolve, reject) => {
+        if (reconnectTimerRef.current !== null) {
+          window.clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+
+        const current = wsRef.current;
+        if (
+          current &&
+          (current.readyState === WebSocket.OPEN ||
+            current.readyState === WebSocket.CONNECTING)
+        ) {
+          resolve();
+          return;
+        }
+
         try {
           wsRef.current = new WebSocket(WS_URL);
 
           wsRef.current.onopen = () => {
             console.log(`🟢 WebSocket connected for ${role}`);
             reconnectAttemptsRef.current = 0;
-            send("join_trip");
+            setIsConnected(true);
+            wsRef.current?.send(
+              JSON.stringify({
+                type: "join_trip",
+                tripId,
+                role,
+              }),
+            );
             resolve();
           };
 
@@ -123,15 +150,20 @@ export const useLiveTracking = (
 
           wsRef.current.onerror = (error) => {
             console.error("WebSocket error:", error);
+            setIsConnected(false);
             onError("WebSocket connection error");
             reject(error);
           };
 
           wsRef.current.onclose = () => {
             console.log(`🔴 WebSocket disconnected for ${role}`);
+            setIsConnected(false);
 
             // Auto-reconnect with exponential backoff
-            if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+            if (
+              !isUnmountedRef.current &&
+              reconnectAttemptsRef.current < maxReconnectAttempts
+            ) {
               const delay = Math.min(
                 1000 * Math.pow(2, reconnectAttemptsRef.current),
                 10000,
@@ -140,7 +172,7 @@ export const useLiveTracking = (
               console.log(
                 `Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`,
               );
-              setTimeout(() => {
+              reconnectTimerRef.current = window.setTimeout(() => {
                 connect(onMessage, onError).catch(console.error);
               }, delay);
             }
@@ -151,20 +183,37 @@ export const useLiveTracking = (
         }
       });
     },
-    [send, role],
+    [role, tripId],
   );
 
   const disconnect = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
+    setIsConnected(false);
+  }, []);
+
+  useEffect(() => {
+    isUnmountedRef.current = false;
+    return () => {
+      isUnmountedRef.current = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
   }, []);
 
   return {
     connect,
     disconnect,
     send,
-    isConnected: wsRef.current?.readyState === WebSocket.OPEN,
+    isConnected,
   };
 };

@@ -1,6 +1,10 @@
 import express from "express";
 import jwt from "jsonwebtoken";
-import { ensureUser, getDriverOnboardingByPhone, upsertDriverOnboarding } from "../db/sqlite.js";
+import {
+  ensureUser,
+  getDriverOnboardingByPhone,
+  upsertDriverOnboarding,
+} from "../db/sqlite.js";
 
 const router = express.Router();
 
@@ -20,6 +24,44 @@ router.post("/register", (req, res) => {
       });
     }
 
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "OTP verification is required before registration.",
+      });
+    }
+
+    let verifiedPayload;
+    try {
+      verifiedPayload = jwt.verify(
+        token,
+        process.env.JWT_SECRET || "dev-secret",
+      );
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: error?.message || "Invalid or expired OTP verification token.",
+      });
+    }
+
+    if (verifiedPayload?.purpose !== "otp-verification") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid OTP verification token.",
+      });
+    }
+
+    if (
+      verifiedPayload.phoneNumber !== phoneNumber ||
+      verifiedPayload.userType !== userType
+    ) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "OTP verification token does not match this registration request.",
+      });
+    }
+
     // Generate JWT token
     const jwtToken = jwt.sign(
       {
@@ -27,7 +69,7 @@ router.post("/register", (req, res) => {
         userType,
       },
       process.env.JWT_SECRET || "dev-secret",
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
 
     res.json({
@@ -43,7 +85,7 @@ router.post("/register", (req, res) => {
     console.error("Error in /register endpoint:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to register user",
+      message: error?.message || "Failed to register user",
     });
   }
 });
@@ -64,7 +106,7 @@ router.post("/login", (req, res) => {
         userType,
       },
       process.env.JWT_SECRET || "dev-secret",
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
 
     res.json({
@@ -80,7 +122,7 @@ router.post("/login", (req, res) => {
     console.error("Error in /login endpoint:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to login",
+      message: error?.message || "Failed to login",
     });
   }
 });
@@ -102,10 +144,17 @@ router.post("/driver-onboarding", async (req, res) => {
       faceRegistered = false,
     } = req.body;
 
-    if (!phoneNumber || !driverName || !carNumber || !carModel || !faceCredential) {
+    if (
+      !phoneNumber ||
+      !driverName ||
+      !carNumber ||
+      !carModel ||
+      !faceCredential
+    ) {
       return res.status(400).json({
         success: false,
-        message: "phoneNumber, driverName, carNumber, carModel and faceCredential are required",
+        message:
+          "phoneNumber, driverName, carNumber, carModel and faceCredential are required",
       });
     }
 
@@ -136,7 +185,7 @@ router.post("/driver-onboarding", async (req, res) => {
     console.error("Error in /driver-onboarding endpoint:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to save driver onboarding",
+      message: error?.message || "Failed to save driver onboarding",
     });
   }
 });
@@ -164,7 +213,7 @@ router.get("/driver-onboarding/:phoneNumber", async (req, res) => {
     console.error("Error in GET /driver-onboarding endpoint:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch driver onboarding",
+      message: error?.message || "Failed to fetch driver onboarding",
     });
   }
 });

@@ -57,18 +57,29 @@ export const initializeLiveTracking = (server) => {
 
 function handleMessage(ws, clientId, message) {
   const { type, tripId, role, data } = message;
+  const resolvedTripId = String(tripId ?? data?.tripId ?? "").trim();
+  const resolvedRole = String(role ?? data?.role ?? "").trim().toLowerCase();
 
   switch (type) {
     case "join_trip":
-      handleJoinTrip(ws, clientId, tripId, role);
+      if (!resolvedTripId || !resolvedRole) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "join_trip requires tripId and role",
+          })
+        );
+        return;
+      }
+      handleJoinTrip(ws, clientId, resolvedTripId, resolvedRole);
       break;
 
     case "location_update":
-      handleLocationUpdate(clientId, tripId, data);
+      handleLocationUpdate(clientId, resolvedTripId, data || {});
       break;
 
     case "deviation_alert":
-      handleDeviationAlert(clientId, tripId, data);
+      handleDeviationAlert(clientId, resolvedTripId, data || {});
       break;
 
     case "trip_complete":

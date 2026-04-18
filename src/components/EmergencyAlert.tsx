@@ -97,7 +97,9 @@ const EmergencyAlert = ({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-  const [statusType, setStatusType] = useState<"info" | "success" | "error">("info");
+  const [statusType, setStatusType] = useState<
+    "info" | "success" | "error" | "warning"
+  >("info");
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<AlertResult[]>([]);
 
@@ -191,11 +193,21 @@ const EmergencyAlert = ({
       }
 
       setResults(Array.isArray(data.results) ? data.results : []);
-      setStatusType(data.success ? "success" : "error");
+      setStatusType(
+        (data as AlertResponse & { partialSuccess?: boolean }).partialSuccess
+          ? "warning"
+          : data.success
+            ? "success"
+            : "error",
+      );
       setStatus(data.message || "Emergency alert request finished.");
     } catch (error) {
       setStatusType("error");
-      setStatus(error instanceof Error ? error.message : "Failed to send emergency alert.");
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to send emergency alert.",
+      );
     } finally {
       setSending(false);
     }
@@ -209,7 +221,9 @@ const EmergencyAlert = ({
     <div className="absolute inset-0 z-[1300] bg-black/55 p-4 backdrop-blur-sm">
       <div className="mx-auto mt-10 max-w-md rounded-2xl bg-white p-4 shadow-2xl">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-bold text-gray-900">Emergency Contact Alert</h3>
+          <h3 className="text-sm font-bold text-gray-900">
+            Emergency Contact Alert
+          </h3>
           <button
             type="button"
             onClick={onClose}
@@ -254,8 +268,12 @@ const EmergencyAlert = ({
                 className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-gray-800">{contact.name}</p>
-                  <p className="truncate text-[11px] text-gray-500">{contact.phone}</p>
+                  <p className="truncate text-xs font-semibold text-gray-800">
+                    {contact.name}
+                  </p>
+                  <p className="truncate text-[11px] text-gray-500">
+                    {contact.phone}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -274,9 +292,11 @@ const EmergencyAlert = ({
             className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
               statusType === "success"
                 ? "bg-green-100 text-green-700"
-                : statusType === "error"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-blue-100 text-blue-700"
+                : statusType === "warning"
+                  ? "bg-amber-100 text-amber-800"
+                  : statusType === "error"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-blue-100 text-blue-700"
             }`}
           >
             {status}
@@ -286,12 +306,17 @@ const EmergencyAlert = ({
         {results.length > 0 && (
           <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-2">
             {results.map((item, index) => (
-              <div key={`${item.contact.phone}-${index}`} className="rounded border border-gray-100 px-2 py-1.5 text-[11px]">
+              <div
+                key={`${item.contact.phone}-${index}`}
+                className="rounded border border-gray-100 px-2 py-1.5 text-[11px]"
+              >
                 <p className="font-semibold text-gray-800">
                   {item.contact.name} ({item.contact.phone})
                 </p>
                 <p className={item.success ? "text-green-700" : "text-red-700"}>
-                  {item.success ? `Sent${item.sid ? ` · ${item.sid}` : ""}` : item.error || "Failed"}
+                  {item.success
+                    ? `Sent${item.sid ? ` · ${item.sid}` : ""}`
+                    : item.error || "Failed"}
                 </p>
               </div>
             ))}

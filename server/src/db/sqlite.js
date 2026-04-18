@@ -151,6 +151,32 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
     }
   }
 
+  try {
+    await runQuery(`ALTER TABLE driver_onboarding ADD COLUMN last_lat REAL`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(`ALTER TABLE driver_onboarding ADD COLUMN last_lng REAL`);
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    await runQuery(
+      `ALTER TABLE driver_onboarding ADD COLUMN last_location_updated_at TEXT`,
+    );
+  } catch (error) {
+    if (!isDuplicateColumnError(error)) {
+      throw error;
+    }
+  }
+
   await runQuery(`
     CREATE TABLE IF NOT EXISTS ride_otps (
       ride_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -339,6 +365,29 @@ export const initDatabase = async ({ dbPath = null } = {}) => {
   await runQuery(`
     CREATE INDEX IF NOT EXISTS idx_emergency_contacts_driver
     ON emergency_contacts (driver_id)
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS driver_incidents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ride_id INTEGER,
+      otp_code TEXT,
+      driver_phone TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      lat REAL,
+      lng REAL,
+      nearest_garage_name TEXT,
+      nearest_garage_phone TEXT,
+      nearest_garage_distance_km REAL,
+      reported_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (ride_id) REFERENCES ride_otps(ride_id) ON DELETE SET NULL
+    )
+  `);
+
+  await runQuery(`
+    CREATE INDEX IF NOT EXISTS idx_driver_incidents_otp_created
+    ON driver_incidents (otp_code, created_at)
   `);
 
   await runQuery(`
@@ -667,6 +716,44 @@ export const getDriverOnboardingByPhone = async (phone) => {
   ]);
 };
 
+export const updateDriverAvailabilityLocation = async ({
+  phone,
+  lat,
+  lng,
+  timestamp = nowIso(),
+}) => {
+  if (!phone || lat === undefined || lng === undefined) {
+    throw new Error(
+      "updateDriverAvailabilityLocation requires phone, lat, and lng",
+    );
+  }
+
+  await runQuery(
+    `UPDATE driver_onboarding
+     SET last_lat = ?,
+         last_lng = ?,
+         last_location_updated_at = ?,
+         updated_at = ?
+     WHERE phone = ?`,
+    [Number(lat), Number(lng), String(timestamp), nowIso(), String(phone)],
+  );
+
+  return getOne(
+    `SELECT
+      phone,
+      driver_name,
+      car_model,
+      car_number,
+      face_registered,
+      last_lat,
+      last_lng,
+      last_location_updated_at
+     FROM driver_onboarding
+     WHERE phone = ?`,
+    [String(phone)],
+  );
+};
+
 export const createEmergencyContact = async ({ driverId, name, phone }) => {
   if (!driverId || !name || !phone) {
     throw new Error(
@@ -824,7 +911,13 @@ export const joinRideByOtp = async ({ otpCode, passengerPhone }) => {
   ]);
 };
 
-export const joinRideByOtpAsDriver = async ({ otpCode, driverPhone }) => {
+export const joinRideByOtpAsDriver = async ({
+  otpCode,
+  driverPhone,
+  pickupLat = null,
+  pickupLng = null,
+  pickupLabel = null,
+}) => {
   if (!otpCode || !driverPhone) {
     throw new Error("joinRideByOtpAsDriver requires otpCode and driverPhone");
   }
@@ -838,11 +931,32 @@ export const joinRideByOtpAsDriver = async ({ otpCode, driverPhone }) => {
     throw new Error("This ride OTP is no longer active");
   }
 
+  const hasValidPickup =
+    Number.isFinite(Number(pickupLat)) && Number.isFinite(Number(pickupLng));
+
   await runQuery(
     `UPDATE ride_otps
-     SET driver_phone = ?, status = 'active', updated_at = ?
+     SET driver_phone = ?,
+         status = 'active',
+         start_lat = COALESCE(?, start_lat),
+         start_lng = COALESCE(?, start_lng),
+         source_label = COALESCE(?, source_label),
+         current_lat = COALESCE(?, current_lat),
+         current_lng = COALESCE(?, current_lng),
+         location_updated_at = COALESCE(?, location_updated_at),
+         updated_at = ?
      WHERE otp_code = ?`,
-    [String(driverPhone), nowIso(), String(otpCode)],
+    [
+      String(driverPhone),
+      hasValidPickup ? Number(pickupLat) : null,
+      hasValidPickup ? Number(pickupLng) : null,
+      pickupLabel ? String(pickupLabel) : null,
+      hasValidPickup ? Number(pickupLat) : null,
+      hasValidPickup ? Number(pickupLng) : null,
+      hasValidPickup ? nowIso() : null,
+      nowIso(),
+      String(otpCode),
+    ],
   );
 
   return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
@@ -1112,10 +1226,12 @@ export const completeRideOtpByCode = async ({
       drowsinessSummary ? JSON.stringify(drowsinessSummary) : null,
       nowIso(),
       String(otpCode),
-    ]
+    ],
   );
 
-  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [String(otpCode)]);
+  return getOne(`SELECT * FROM ride_otps WHERE otp_code = ?`, [
+    String(otpCode),
+  ]);
 };
 
 export const startTrip = async ({
@@ -1516,9 +1632,9 @@ export const getNearbyAvailableDrivers = async ({
       d.driver_name,
       d.car_model,
       d.car_number,
-      ll.current_lat AS lat,
-      ll.current_lng AS lng,
-      ll.location_updated_at
+      COALESCE(ll.current_lat, d.last_lat) AS lat,
+      COALESCE(ll.current_lng, d.last_lng) AS lng,
+      COALESCE(ll.location_updated_at, d.last_location_updated_at) AS location_updated_at
     FROM driver_onboarding d
     LEFT JOIN (
       SELECT r1.driver_phone, r1.current_lat, r1.current_lng, r1.location_updated_at
@@ -1543,8 +1659,8 @@ export const getNearbyAvailableDrivers = async ({
     WHERE d.face_registered = 1
       AND active.ride_id IS NULL
       AND (? IS NULL OR d.phone != ?)
-      AND ll.current_lat IS NOT NULL
-      AND ll.current_lng IS NOT NULL`,
+      AND COALESCE(ll.current_lat, d.last_lat) IS NOT NULL
+      AND COALESCE(ll.current_lng, d.last_lng) IS NOT NULL`,
     [
       excludePhone ? String(excludePhone) : null,
       excludePhone ? String(excludePhone) : null,
@@ -1592,6 +1708,56 @@ export const getLatestActiveRideByDriverPhone = async (driverPhone) => {
      LIMIT 1`,
     [String(driverPhone)],
   );
+};
+
+export const createDriverIncident = async ({
+  rideId = null,
+  otpCode = null,
+  driverPhone,
+  reason,
+  lat = null,
+  lng = null,
+  nearestGarage = null,
+  reportedAt = nowIso(),
+}) => {
+  if (!driverPhone || !reason) {
+    throw new Error("createDriverIncident requires driverPhone and reason");
+  }
+
+  const createdAt = nowIso();
+
+  const result = await runQuery(
+    `INSERT INTO driver_incidents (
+      ride_id,
+      otp_code,
+      driver_phone,
+      reason,
+      lat,
+      lng,
+      nearest_garage_name,
+      nearest_garage_phone,
+      nearest_garage_distance_km,
+      reported_at,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      rideId === null || rideId === undefined ? null : Number(rideId),
+      otpCode ? String(otpCode) : null,
+      String(driverPhone),
+      String(reason),
+      lat === null || lat === undefined ? null : Number(lat),
+      lng === null || lng === undefined ? null : Number(lng),
+      nearestGarage?.name ? String(nearestGarage.name) : null,
+      nearestGarage?.phone ? String(nearestGarage.phone) : null,
+      nearestGarage?.distanceKm === null || nearestGarage?.distanceKm === undefined
+        ? null
+        : Number(nearestGarage.distanceKm),
+      String(reportedAt || nowIso()),
+      createdAt,
+    ],
+  );
+
+  return getOne(`SELECT * FROM driver_incidents WHERE id = ?`, [result.lastID]);
 };
 
 export const upsertUserSession = async ({

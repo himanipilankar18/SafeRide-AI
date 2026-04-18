@@ -1,11 +1,5 @@
 import { motion } from "framer-motion";
-import {
-  Ambulance,
-  MapPin,
-  Phone,
-  Trash2,
-  UserPlus,
-} from "lucide-react";
+import { Ambulance, MapPin, Phone, Trash2, UserPlus } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { TripConfig } from "@/screens/HomeScreen";
 import { LatLng } from "@/lib/navigationSafety";
@@ -86,7 +80,7 @@ const EmergencyScreen = ({
   const [contactError, setContactError] = useState<string | null>(null);
   const [alertStatus, setAlertStatus] = useState<string | null>(null);
   const [alertStatusType, setAlertStatusType] = useState<
-    "success" | "error" | "info"
+    "success" | "error" | "info" | "warning"
   >("info");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [isSimulatingCall, setIsSimulatingCall] = useState(false);
@@ -97,9 +91,7 @@ const EmergencyScreen = ({
   const [hospitalSource, setHospitalSource] = useState<
     "online" | "offline-cache"
   >("online");
-  const [supportView, setSupportView] = useState<"none" | "hospital">(
-    "none",
-  );
+  const [supportView, setSupportView] = useState<"none" | "hospital">("none");
   const callTimerRefs = useRef<number[]>([]);
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -249,12 +241,7 @@ const EmergencyScreen = ({
       return;
     }
 
-    const selectedContacts = contacts.filter((contact) => contact.selectedForSos);
-    if (selectedContacts.length === 0) {
-      setAlertStatus("Select at least one contact for SOS alerts.");
-      setAlertStatusType("error");
-      return;
-    }
+    const recipients = contacts.filter((contact) => contact.phone.trim());
 
     setIsSendingAlert(true);
     setAlertStatus("Sending emergency alerts...");
@@ -275,7 +262,7 @@ const EmergencyScreen = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contacts: selectedContacts,
+          contacts: recipients,
           passenger: {
             phoneNumber: passengerPhone,
           },
@@ -304,7 +291,7 @@ const EmergencyScreen = ({
       });
 
       const data = await response.json();
-      if (!response.ok || !data.success) {
+      if (!response.ok && !data.partialSuccess) {
         const failureReasons = Array.isArray(data?.results)
           ? data.results
               .filter(
@@ -330,7 +317,7 @@ const EmergencyScreen = ({
       }
 
       setAlertStatus(data.message || "Emergency alerts sent.");
-      setAlertStatusType("success");
+      setAlertStatusType(data.partialSuccess ? "warning" : "success");
     } catch (error) {
       setAlertStatus(
         error instanceof Error
@@ -424,9 +411,11 @@ const EmergencyScreen = ({
             className={`mb-5 w-full rounded-2xl px-4 py-3 text-center text-xs font-semibold ${
               alertStatusType === "success"
                 ? "bg-safe/10 text-safe"
-                : alertStatusType === "error"
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-accent text-muted-foreground"
+                : alertStatusType === "warning"
+                  ? "bg-amber-100 text-amber-800"
+                  : alertStatusType === "error"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-accent text-muted-foreground"
             }`}
           >
             {alertStatus}

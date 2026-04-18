@@ -3,11 +3,19 @@ import { motion } from "framer-motion";
 import { ShieldCheck, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import AppLogo from "@/components/AppLogo";
 
 interface LoginScreenProps {
-  onLogin: (user: { phoneNumber: string; userType: string; token: string }) => void;
+  onLogin: (user: {
+    phoneNumber: string;
+    userType: string;
+    token: string;
+  }) => void;
   userType: "driver" | "passenger";
 }
 
@@ -17,11 +25,16 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [statusType, setStatusType] = useState<"info" | "error" | "success">("info");
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
+  const [statusType, setStatusType] = useState<"info" | "error" | "success">(
+    "info",
+  );
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
   const handleSkipForNow = () => {
-    const fallbackPhone = phone.trim() || (userType === "driver" ? "driver-demo" : "passenger-demo");
+    const fallbackPhone =
+      phone.trim() ||
+      (userType === "driver" ? "driver-demo" : "passenger-demo");
     const token = `demo-${userType}-${Date.now()}`;
 
     localStorage.setItem("authToken", token);
@@ -40,10 +53,10 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
 
   const handleSendOtp = async () => {
     if (!phone) return;
-    
+
     setIsLoading(true);
     setStatus(null);
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/otp/send`, {
         method: "POST",
@@ -89,28 +102,43 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
       if (data.success) {
         setStatus("OTP verified successfully!");
         setStatusType("success");
-        
-        // Register/Login the user
-        const authResponse = await fetch(`${API_BASE_URL}/auth/login`, {
+
+        if (!data.verificationToken) {
+          setStatus(
+            "OTP verification succeeded, but no registration token was returned.",
+          );
+          setStatusType("error");
+          return;
+        }
+
+        // Register the user after successful OTP verification
+        const authResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phoneNumber: phone, userType }),
+          body: JSON.stringify({
+            phoneNumber: phone,
+            userType,
+            token: data.verificationToken,
+          }),
         });
 
         const authData = await authResponse.json();
-        
+
         if (authData.success) {
           // Store token in localStorage
           localStorage.setItem("authToken", authData.token);
           localStorage.setItem("userType", userType);
           localStorage.setItem("phoneNumber", phone);
-          
+
           // Call onLogin callback
           onLogin({
             phoneNumber: phone,
             userType,
             token: authData.token,
           });
+        } else {
+          setStatus(authData.message || "Failed to register user");
+          setStatusType("error");
         }
       } else {
         setStatus(data.message || "Failed to verify OTP");
@@ -184,7 +212,9 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
         </Button>
 
         <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-[0_10px_24px_-16px_rgba(15,23,42,0.3)] backdrop-blur">
-          <label className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Phone number</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">
+            Phone number
+          </label>
           <div className="mt-2 flex gap-2">
             <Input
               type="tel"
@@ -201,13 +231,13 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
               className="rounded-xl border-slate-200 px-3 text-xs font-semibold text-slate-700"
               disabled={!phone || isLoading}
               onClick={handleSendOtp}
-              loading={isLoading}
             >
               {isLoading ? "Sending..." : "Get OTP"}
             </Button>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-            Use international format like +15551234567 so the OTP reaches the registered SIM.
+            Use international format like +15551234567 so the OTP reaches the
+            registered SIM.
           </p>
         </div>
 
@@ -219,8 +249,16 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
             className="space-y-3 rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-[0_10px_24px_-16px_rgba(15,23,42,0.3)] backdrop-blur"
           >
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Enter 6-digit code</label>
-              <InputOTP maxLength={6} value={otp} onChange={(value) => setOtp(value)} autoFocus disabled={isLoading}>
+              <label className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">
+                Enter 6-digit code
+              </label>
+              <InputOTP
+                maxLength={6}
+                value={otp}
+                onChange={(value) => setOtp(value)}
+                autoFocus
+                disabled={isLoading}
+              >
                 <InputOTPGroup>
                   <InputOTPSlot index={0} />
                   <InputOTPSlot index={1} />
@@ -261,8 +299,8 @@ const LoginScreen = ({ onLogin, userType }: LoginScreenProps) => {
               statusType === "success"
                 ? "bg-green-100 text-green-800"
                 : statusType === "error"
-                ? "bg-red-100 text-red-800"
-                : "bg-blue-100 text-blue-800"
+                  ? "bg-red-100 text-red-800"
+                  : "bg-blue-100 text-blue-800"
             }`}
           >
             {status}

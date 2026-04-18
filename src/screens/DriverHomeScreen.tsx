@@ -72,6 +72,9 @@ const DriverHomeScreen = ({
   const [locationStatus, setLocationStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
+  const availabilitySyncRef = useRef<{ lastSentAt: number }>({
+    lastSentAt: 0,
+  });
   const watchIdRef = useRef<number | null>(null);
   const reverseGeoMetaRef = useRef<{
     timestamp: number;
@@ -96,6 +99,20 @@ const DriverHomeScreen = ({
 
     return 2 * earthRadiusMeters * Math.asin(Math.sqrt(q));
   };
+
+  const apiBase = useMemo(() => {
+    const configured = import.meta.env.VITE_API_BASE_URL;
+    if (typeof configured === "string" && configured.trim()) {
+      const clean = configured.trim().replace(/\/$/, "");
+      return clean.endsWith("/api") ? clean : `${clean}/api`;
+    }
+
+    if (typeof window !== "undefined") {
+      return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+    }
+
+    return "http://localhost:5001/api";
+  }, []);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -202,6 +219,36 @@ const DriverHomeScreen = ({
     };
   }, [currentLocation]);
 
+  useEffect(() => {
+    if (!currentLocation) {
+      return;
+    }
+
+    const driverPhone = window.localStorage.getItem("phoneNumber");
+    if (!driverPhone) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - availabilitySyncRef.current.lastSentAt < 5000) {
+      return;
+    }
+    availabilitySyncRef.current.lastSentAt = now;
+
+    fetch(`${apiBase}/rides/availability-location`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        driverPhone,
+        lat: currentLocation.lat,
+        lng: currentLocation.lng,
+        timestamp: new Date().toISOString(),
+      }),
+    }).catch(() => {
+      // Best effort: availability sync should not block driver home UX.
+    });
+  }, [apiBase, currentLocation]);
+
   if (!initialCenter) {
     return (
       <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_#f3f4f6,_#e5e7eb_65%,_#d1d5db)] text-slate-900">
@@ -280,7 +327,9 @@ const DriverHomeScreen = ({
                 <MapPin size={18} className="text-emerald-600" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-900">Live Device Location</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  Live Device Location
+                </p>
                 <p className="text-xs leading-snug text-slate-500">
                   {currentLocation ? locationLabel : "Waiting for GPS..."}
                 </p>
@@ -296,7 +345,9 @@ const DriverHomeScreen = ({
               <PlusCircle size={20} />
               <div>
                 <p className="text-base font-extrabold">Join a Ride</p>
-                <p className="text-xs text-emerald-50">Start accepting nearby ride requests.</p>
+                <p className="text-xs text-emerald-50">
+                  Start accepting nearby ride requests.
+                </p>
               </div>
             </div>
           </button>
@@ -311,14 +362,20 @@ const DriverHomeScreen = ({
               </div>
               <div>
                 <p className="text-base font-bold">Find Garage</p>
-                <p className="text-xs text-slate-500">Open nearby garages and get quick support.</p>
+                <p className="text-xs text-slate-500">
+                  Open nearby garages and get quick support.
+                </p>
               </div>
             </div>
           </button>
 
           <div className="pointer-events-auto rounded-2xl border border-white/75 bg-white/65 px-4 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur-xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Support Zone</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">Nearby garages within 5 km are one tap away.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Support Zone
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              Nearby garages within 5 km are one tap away.
+            </p>
           </div>
         </div>
       </div>

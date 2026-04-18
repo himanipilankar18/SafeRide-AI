@@ -328,6 +328,7 @@ const MonitoringScreen = ({
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
+  const activeRideOtp = tripConfig.rideOtpCode || tripId || null;
 
   const selectedContacts = emergencyContacts.filter((contact) =>
     selectedContactIds.includes(contact.id),
@@ -647,8 +648,6 @@ const MonitoringScreen = ({
         );
       }
 
-      setReplacementDriver(nearest.item);
-
       const applyLocalReplacement = () => {
         onTripChange({
           ...tripConfig,
@@ -661,7 +660,7 @@ const MonitoringScreen = ({
       };
 
       const syncReplacement = async () => {
-        if (!tripId) {
+        if (!activeRideOtp) {
           applyLocalReplacement();
           return;
         }
@@ -670,8 +669,11 @@ const MonitoringScreen = ({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            otpCode: tripId,
+            otpCode: activeRideOtp,
             driverPhone: nearest.item.phone,
+            pickupLat: currentLocation.lat,
+            pickupLng: currentLocation.lng,
+            pickupLabel: "Current ride handoff point",
           }),
         });
 
@@ -686,6 +688,8 @@ const MonitoringScreen = ({
       };
 
       await syncReplacement();
+      setReplacementDriver(nearest.item);
+      setShowDeviationPanel(false);
 
       setDispatchStatus(
         `Replacement ride scheduled with ${nearest.item.name} (${nearest.distanceKm.toFixed(1)} km away).`,
@@ -722,13 +726,16 @@ const MonitoringScreen = ({
         });
       };
 
-      if (tripId) {
+      if (activeRideOtp) {
         const response = await fetch(`${API_BASE_URL}/rides/join-driver`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            otpCode: tripId,
+            otpCode: activeRideOtp,
             driverPhone: candidate.phone,
+            pickupLat: currentLocation.lat,
+            pickupLng: currentLocation.lng,
+            pickupLabel: "Current ride handoff point",
           }),
         });
 
@@ -808,6 +815,36 @@ const MonitoringScreen = ({
               message: event.message || "Route deviation detected.",
             });
             setShowDeviationPanel(true);
+          }
+
+          if (event.type === "driver_incident") {
+            const reasonText = String(
+              (event as { incident?: { reason?: string } }).incident?.reason ||
+                "mechanical",
+            )
+              .toLowerCase()
+              .includes("puncture")
+              ? "puncture"
+              : "mechanical";
+
+            setDriverIncident({
+              reason: reasonText,
+              reportedAt: new Date().toISOString(),
+            });
+            setDispatchStatus(
+              event.message ||
+                "Driver reported a vehicle issue. Replacement flow is now available.",
+            );
+            setDispatchStatusType("error");
+          }
+
+          if (event.type === "emergency_alert") {
+            setTripEmergencyEvents((prev) => prev + 1);
+            setDispatchStatus(
+              event.message ||
+                "Emergency alert dispatched to configured contacts.",
+            );
+            setDispatchStatusType("error");
           }
         }
 
@@ -1123,8 +1160,8 @@ const MonitoringScreen = ({
       return;
     }
 
-    const warningThresholdKm = Math.max(0.1, tripConfig.toleranceKm);
-    const dangerThresholdKm = Math.max(0.2, warningThresholdKm * 2);
+    const warningThresholdKm = Math.max(0.15, tripConfig.toleranceKm);
+    const dangerThresholdKm = Math.max(0.3, warningThresholdKm * 2);
     const distanceOffRouteKm = getMinRouteDistanceKm(
       currentLocation,
       routeLine,
@@ -1202,6 +1239,24 @@ const MonitoringScreen = ({
     send,
     tripConfig.toleranceKm,
   ]);
+
+  const showPassengerDeviationCard =
+    hasActiveTrip &&
+    !isDriverMode &&
+    showDeviationPanel &&
+    Boolean(deviationState);
+  const showPassengerReplacementCard =
+    hasActiveTrip &&
+    !isDriverMode &&
+    Boolean(
+      driverIncident ||
+      replacementDriver ||
+      replacementCandidates.length > 0 ||
+      isFindingReplacement,
+    );
+  const replacementPanelBottomClass = showPassengerDeviationCard
+    ? "bottom-[20rem]"
+    : "bottom-[7.25rem]";
 
   const handleUseCurrentAsSource = () => {
     onTripChange({
@@ -1302,11 +1357,13 @@ const MonitoringScreen = ({
       {hasActiveTrip && isDriverMode && (
         <div className="absolute left-4 right-4 top-24 z-[1010]">
           <div className="flex rounded-xl border border-white/20 bg-black/55 p-1 text-white backdrop-blur">
-            {([
-              { key: "map", label: "Map" },
-              { key: "drowsiness", label: "Drowsiness" },
-              { key: "summary", label: "Trip Summary" },
-            ] as Array<{ key: DriverSlide; label: string }>).map((item) => (
+            {(
+              [
+                { key: "map", label: "Map" },
+                { key: "drowsiness", label: "Drowsiness" },
+                { key: "summary", label: "Trip Summary" },
+              ] as Array<{ key: DriverSlide; label: string }>
+            ).map((item) => (
               <button
                 key={item.key}
                 type="button"
@@ -1472,7 +1529,8 @@ const MonitoringScreen = ({
                     </div>
 
                     <p className="mt-2 text-sm font-bold">
-                      {ride.source_label || "Source"} → {ride.destination_label || "Destination"}
+                      {ride.source_label || "Source"} →{" "}
+                      {ride.destination_label || "Destination"}
                     </p>
 
                     <div className="mt-3 rounded-lg bg-black/35 p-2">
@@ -1480,7 +1538,9 @@ const MonitoringScreen = ({
                         Trip Overview
                       </p>
                       <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
-                        <span>Time: {new Date(ride.ended_at).toLocaleTimeString()}</span>
+                        <span>
+                          Time: {new Date(ride.ended_at).toLocaleTimeString()}
+                        </span>
                         <span>Distance: {liveDistanceKm.toFixed(2)} km</span>
                         <span>Duration: {formatDuration(liveDurationSec)}</span>
                       </div>
@@ -1493,13 +1553,18 @@ const MonitoringScreen = ({
                       </div>
                       <div className="rounded-lg bg-black/35 px-2 py-1.5">
                         <Route size={12} className="mr-1 inline" />
-                        {ride.distance_km ? `${ride.distance_km.toFixed(2)} km` : "-"}
+                        {ride.distance_km
+                          ? `${ride.distance_km.toFixed(2)} km`
+                          : "-"}
                       </div>
                     </div>
 
                     <div className="mt-2 flex items-center justify-between text-[11px] text-white/80">
                       <span>
-                        Safety: {safetyScore !== null ? `${Math.round(safetyScore)}/100` : "-"}
+                        Safety:{" "}
+                        {safetyScore !== null
+                          ? `${Math.round(safetyScore)}/100`
+                          : "-"}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={11} /> {ride.otp_code}
@@ -1511,8 +1576,13 @@ const MonitoringScreen = ({
                         Safety Summary
                       </p>
                       <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
-                        <span>Fatigue: {liveSnapshot.fatigueScore.toFixed(1)}%</span>
-                        <span>Distraction: {liveSnapshot.distractionScore.toFixed(1)}%</span>
+                        <span>
+                          Fatigue: {liveSnapshot.fatigueScore.toFixed(1)}%
+                        </span>
+                        <span>
+                          Distraction:{" "}
+                          {liveSnapshot.distractionScore.toFixed(1)}%
+                        </span>
                         <span>Risk: {liveRisk.label}</span>
                       </div>
                     </div>
@@ -1522,14 +1592,25 @@ const MonitoringScreen = ({
                         Events
                       </p>
                       <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-white/85">
-                        <span>Drowsy alerts: {liveSnapshot.warningAlerts + liveSnapshot.criticalAlerts}</span>
+                        <span>
+                          Drowsy alerts:{" "}
+                          {liveSnapshot.warningAlerts +
+                            liveSnapshot.criticalAlerts}
+                        </span>
                         <span>Route deviations: {tripDeviationEvents}</span>
                         <span>Emergency: {tripEmergencyEvents}</span>
                       </div>
                     </div>
 
-                    <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${liveRisk.cls}`}>
-                      Final Status: {liveRisk.label === "Safe" ? "GREEN - Safe ride" : liveRisk.label === "Warning" ? "YELLOW - Mild risk" : "RED - High risk"}
+                    <div
+                      className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${liveRisk.cls}`}
+                    >
+                      Final Status:{" "}
+                      {liveRisk.label === "Safe"
+                        ? "GREEN - Safe ride"
+                        : liveRisk.label === "Warning"
+                          ? "YELLOW - Mild risk"
+                          : "RED - High risk"}
                     </div>
                   </div>
                 );
@@ -1539,235 +1620,250 @@ const MonitoringScreen = ({
         </div>
       )}
 
-      {hasActiveTrip && locationError && (!isDriverMode || driverSlide === "map") && (
-        <div className="absolute left-4 right-4 top-[31rem] z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
-          <AlertTriangle size={14} className="mr-2 inline" />
-          {locationError}
+      {hasActiveTrip &&
+        locationError &&
+        (!isDriverMode || driverSlide === "map") && (
+          <div className="absolute left-4 right-4 top-[31rem] z-[1000] rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-xl">
+            <AlertTriangle size={14} className="mr-2 inline" />
+            {locationError}
+          </div>
+        )}
+
+      {showPassengerDeviationCard && (
+        <div className="absolute inset-x-4 bottom-[7.25rem] z-[1150] rounded-2xl border border-red-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-red-600">
+                {`Route Deviation ${deviationState?.severity === "danger" ? "Detected" : "Warning"}`}
+              </p>
+              <p className="mt-1 text-sm font-semibold">
+                {deviationState?.message}
+              </p>
+              {deviationState && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Off route: {deviationState.distanceOffRouteKm.toFixed(2)} km |
+                  Risk: {deviationState.riskScore}%
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeviationPanel(false)}
+              className="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
+            >
+              Hide
+            </button>
+          </div>
+
+          <div className="mt-3 rounded-xl bg-gray-50 p-3">
+            <p className="text-xs font-semibold text-gray-700">
+              Who should be notified?
+            </p>
+
+            <div className="mt-2 space-y-2">
+              {emergencyContacts.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  No emergency contacts found. Add them in the SOS screen.
+                </p>
+              ) : (
+                emergencyContacts.map((contact) => (
+                  <label
+                    key={contact.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-gray-800">
+                        {contact.name}
+                      </p>
+                      <p className="truncate text-[11px] text-gray-500">
+                        {contact.phone} (SMS)
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={selectedContactIds.includes(contact.id)}
+                      onChange={() => toggleContactSelection(contact.id)}
+                    />
+                  </label>
+                ))
+              )}
+
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">
+                    Police Control Room
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    {POLICE_CONTACT.phone} (SMS)
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={contactPolice}
+                  onChange={() => setContactPolice((prev) => !prev)}
+                />
+              </label>
+            </div>
+          </div>
+
+          {dispatchStatus && (
+            <div
+              className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
+                dispatchStatusType === "success"
+                  ? "bg-green-100 text-green-700"
+                  : dispatchStatusType === "error"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              {dispatchStatus}
+            </div>
+          )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleDispatchEmergency}
+              disabled={isDispatchingEmergency}
+              className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {isDispatchingEmergency ? "Sending..." : "Send Emergency Alert"}
+            </button>
+            <button
+              type="button"
+              onClick={simulatePoliceCall}
+              className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700"
+            >
+              Call Police (112)
+            </button>
+          </div>
         </div>
       )}
 
-      {hasActiveTrip &&
-        !isDriverMode &&
-        showDeviationPanel &&
-        (deviationState || driverIncident || replacementDriver) && (
-          <div className="absolute inset-x-4 bottom-[7.25rem] z-[1150] rounded-2xl border border-red-300/70 bg-white/95 p-4 text-gray-900 shadow-2xl backdrop-blur">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-red-600">
-                  {deviationState
-                    ? `Route Deviation ${deviationState.severity === "danger" ? "Detected" : "Warning"}`
-                    : "Driver Vehicle Issue Reported"}
-                </p>
-                <p className="mt-1 text-sm font-semibold">
-                  {deviationState
-                    ? deviationState.message
-                    : "Your current driver reported a puncture/mechanical issue. We can schedule a replacement ride."}
-                </p>
-                {deviationState && (
-                  <p className="mt-1 text-xs text-gray-600">
-                    Off route: {deviationState.distanceOffRouteKm.toFixed(2)} km
-                    | Risk: {deviationState.riskScore}%
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDeviationPanel(false)}
-                className="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
-              >
-                Hide
-              </button>
-            </div>
-
-            <div className="mt-3 rounded-xl bg-gray-50 p-3">
-              <p className="text-xs font-semibold text-gray-700">
-                Who should be notified?
+      {showPassengerReplacementCard && (
+        <div
+          className={`absolute inset-x-4 ${replacementPanelBottomClass} z-[1140] rounded-2xl border border-amber-300/80 bg-amber-50/95 p-4 text-gray-900 shadow-2xl backdrop-blur`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700">
+                Replacement Ride
               </p>
-
-              <div className="mt-2 space-y-2">
-                {emergencyContacts.length === 0 ? (
-                  <p className="text-xs text-gray-500">
-                    No emergency contacts found. Add them in the SOS screen.
-                  </p>
-                ) : (
-                  emergencyContacts.map((contact) => (
-                    <label
-                      key={contact.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-semibold text-gray-800">
-                          {contact.name}
-                        </p>
-                        <p className="truncate text-[11px] text-gray-500">
-                          {contact.phone} (SMS)
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={selectedContactIds.includes(contact.id)}
-                        onChange={() => toggleContactSelection(contact.id)}
-                      />
-                    </label>
-                  ))
-                )}
-
-                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-800">
-                      Police Control Room
-                    </p>
-                    <p className="text-[11px] text-gray-500">
-                      {POLICE_CONTACT.phone} (SMS)
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={contactPolice}
-                    onChange={() => setContactPolice((prev) => !prev)}
-                  />
-                </label>
-              </div>
-            </div>
-
-            {dispatchStatus && (
-              <div
-                className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
-                  dispatchStatusType === "success"
-                    ? "bg-green-100 text-green-700"
-                    : dispatchStatusType === "error"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                {dispatchStatus}
-              </div>
-            )}
-
-            {driverIncident && (
-              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
-                <p className="text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
-                  Driver reported vehicle issue
-                </p>
+              <p className="mt-1 text-sm font-semibold text-amber-900">
+                Find and assign a nearby driver from your current handoff point.
+              </p>
+              {driverIncident && (
                 <p className="mt-1 text-xs font-medium text-amber-800">
-                  Reason:{" "}
+                  Reported issue:{" "}
                   {driverIncident.reason === "puncture"
                     ? "Tyre puncture"
                     : "Mechanical issue"}
                 </p>
-                <p className="text-[11px] text-amber-700">
-                  Passenger safety mode: schedule a replacement driver.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleScheduleReplacementRide}
-                  disabled={isFindingReplacement}
-                  className="mt-2 w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
-                >
-                  {isFindingReplacement
-                    ? "Finding nearest driver..."
-                    : "Schedule New Ride with Nearest Driver"}
-                </button>
-              </div>
-            )}
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                clearDriverIncident();
+                setDriverIncident(null);
+                setReplacementDriver(null);
+                setReplacementCandidates([]);
+              }}
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-700"
+            >
+              Close
+            </button>
+          </div>
 
-            {replacementDriver && (
-              <div className="mt-2 rounded-xl border border-green-200 bg-green-50 p-3">
-                <p className="text-xs font-bold text-green-700">
-                  Replacement Driver Assigned
-                </p>
-                <p className="mt-1 text-xs font-semibold text-green-800">
-                  {replacementDriver.name} · {replacementDriver.vehicle}
-                </p>
-                <p className="text-[11px] text-green-700">
-                  {replacementDriver.phone}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => callNumber(replacementDriver.phone)}
-                  className="mt-2 rounded-lg border border-green-300 bg-white px-3 py-1.5 text-[11px] font-bold text-green-700"
-                >
-                  Simulate Driver Call
-                </button>
-              </div>
-            )}
+          {driverIncident && (
+            <button
+              type="button"
+              onClick={handleScheduleReplacementRide}
+              disabled={isFindingReplacement}
+              className="mt-3 w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {isFindingReplacement
+                ? "Finding nearest driver..."
+                : "Schedule New Ride with Nearest Driver"}
+            </button>
+          )}
 
-            {replacementCandidates.length > 0 && (
-              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                <p className="text-xs font-bold text-blue-700">
-                  Available Drivers Nearby
-                </p>
-                <div className="mt-2 space-y-2">
-                  {replacementCandidates.map((candidate) => (
-                    <div
-                      key={`candidate-${candidate.id}`}
-                      className="rounded-lg border border-blue-200 bg-white px-3 py-2"
-                    >
-                      <p className="text-xs font-semibold text-gray-900">
-                        {candidate.name} · {candidate.vehicle}
-                      </p>
-                      <p className="text-[11px] text-gray-600">
-                        {candidate.phone} ·{" "}
-                        {Number(candidate.distanceKm).toFixed(1)} km away
-                      </p>
-                      <button
-                        type="button"
-                        disabled={isFindingReplacement}
-                        onClick={() =>
-                          handleAssignSpecificReplacement(candidate)
-                        }
-                        className="mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-700 disabled:opacity-60"
-                      >
-                        Assign This Driver
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+          {dispatchStatus && (
+            <div
+              className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
+                dispatchStatusType === "success"
+                  ? "bg-green-100 text-green-700"
+                  : dispatchStatusType === "error"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              {dispatchStatus}
+            </div>
+          )}
 
-            {isFindingReplacement && (
-              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                <p className="text-xs font-semibold text-blue-700">
-                  Searching for available drivers near your current location...
-                </p>
-              </div>
-            )}
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
+          {replacementDriver && (
+            <div className="mt-2 rounded-xl border border-green-200 bg-green-50 p-3">
+              <p className="text-xs font-bold text-green-700">
+                Replacement Driver Assigned
+              </p>
+              <p className="mt-1 text-xs font-semibold text-green-800">
+                {replacementDriver.name} · {replacementDriver.vehicle}
+              </p>
+              <p className="text-[11px] text-green-700">
+                {replacementDriver.phone}
+              </p>
               <button
                 type="button"
-                onClick={handleDispatchEmergency}
-                disabled={isDispatchingEmergency}
-                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                onClick={() => callNumber(replacementDriver.phone)}
+                className="mt-2 rounded-lg border border-green-300 bg-white px-3 py-1.5 text-[11px] font-bold text-green-700"
               >
-                {isDispatchingEmergency ? "Sending..." : "Send Emergency Alert"}
-              </button>
-              <button
-                type="button"
-                onClick={simulatePoliceCall}
-                className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700"
-              >
-                Simulate Police Call
+                Simulate Driver Call
               </button>
             </div>
+          )}
 
-            {selectedContacts.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedContacts.map((contact) => (
-                  <button
-                    key={`call-${contact.id}`}
-                    type="button"
-                    onClick={() => callNumber(contact.phone)}
-                    className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700"
+          {replacementCandidates.length > 0 && (
+            <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-bold text-blue-700">
+                Available Drivers Nearby
+              </p>
+              <div className="mt-2 space-y-2">
+                {replacementCandidates.map((candidate) => (
+                  <div
+                    key={`candidate-${candidate.id}`}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-2"
                   >
-                    Simulate Call: {contact.name}
-                  </button>
+                    <p className="text-xs font-semibold text-gray-900">
+                      {candidate.name} · {candidate.vehicle}
+                    </p>
+                    <p className="text-[11px] text-gray-600">
+                      {candidate.phone} ·{" "}
+                      {Number(candidate.distanceKm).toFixed(1)} km away
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isFindingReplacement}
+                      onClick={() => handleAssignSpecificReplacement(candidate)}
+                      className="mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-700 disabled:opacity-60"
+                    >
+                      Assign This Driver
+                    </button>
+                  </div>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+
+          {isFindingReplacement && (
+            <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-semibold text-blue-700">
+                Searching for available drivers near your current location...
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {!hasActiveTrip ? (
         <EmptyRideState onNavigate={onNavigate} />

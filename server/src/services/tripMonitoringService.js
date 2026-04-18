@@ -13,7 +13,7 @@ import { emitTripEvent } from "../liveTracking.js";
 import { emitRouteAlert } from "./tripLifecycleService.js";
 
 const DEFAULT_DEVIATION_THRESHOLD_METERS = Number(
-  process.env.ROUTE_DEVIATION_THRESHOLD_METERS || 100,
+  process.env.ROUTE_DEVIATION_THRESHOLD_METERS || 150,
 );
 const HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 = Number(
   process.env.HARSH_BRAKE_ACCEL_THRESHOLD_MPS2 || -3.5,

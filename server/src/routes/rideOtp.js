@@ -2,14 +2,17 @@ import express from "express";
 import {
   completeRideOtp,
   completeRideOtpByCode,
+  createDriverIncident,
   createRideOtp,
   getNearbyAvailableDrivers,
+  getLatestActiveRideByDriverPhone,
   getRideByOtp,
   getRideOtpPassengerView,
   getRideSummariesByDriverPhone,
   getRideSummariesByPassengerPhone,
   joinRideByOtp,
   joinRideByOtpAsDriver,
+  updateDriverAvailabilityLocation,
   updateRideOtpLocation,
 } from "../db/sqlite.js";
 import {
@@ -87,15 +90,23 @@ router.post(
       const riskScore = Number.isFinite(Number(result?.riskScore))
         ? Number(result.riskScore)
         : 0;
-      const blinkRatePerMinute = Number.isFinite(Number(result?.blinkRatePerMinute))
+      const blinkRatePerMinute = Number.isFinite(
+        Number(result?.blinkRatePerMinute),
+      )
         ? Number(result.blinkRatePerMinute)
         : 0;
-      const eyeClosureSeconds = Number.isFinite(Number(result?.eyeClosureSeconds))
+      const eyeClosureSeconds = Number.isFinite(
+        Number(result?.eyeClosureSeconds),
+      )
         ? Number(result.eyeClosureSeconds)
         : 0;
       const yaw = Number.isFinite(Number(result?.yaw)) ? Number(result.yaw) : 0;
-      const pitch = Number.isFinite(Number(result?.pitch)) ? Number(result.pitch) : 0;
-      const roll = Number.isFinite(Number(result?.roll)) ? Number(result.roll) : 0;
+      const pitch = Number.isFinite(Number(result?.pitch))
+        ? Number(result.pitch)
+        : 0;
+      const roll = Number.isFinite(Number(result?.roll))
+        ? Number(result.roll)
+        : 0;
 
       emitDrowsinessEvent({
         tripId: String(tripId),
@@ -113,7 +124,8 @@ router.post(
         confidence: Number.isFinite(Number(result?.confidence))
           ? Number(result.confidence)
           : 0,
-        reason: typeof result?.reason === "string" ? result.reason : "model_update",
+        reason:
+          typeof result?.reason === "string" ? result.reason : "model_update",
         blinkRatePerMinute,
         eyeClosureSeconds,
         yaw,
@@ -134,6 +146,78 @@ router.post(
     res.json({
       success: true,
       result,
+    });
+  }),
+);
+
+router.post(
+  "/incident",
+  asyncHandler(async (req, res) => {
+    const {
+      driverPhone,
+      reason,
+      location,
+      reportedAt,
+      nearestGarage = null,
+      otpCode = null,
+    } = req.body || {};
+
+    if (!driverPhone || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "driverPhone and reason are required",
+      });
+    }
+
+    const explicitOtp = otpCode ? String(otpCode).trim() : null;
+    const ride = explicitOtp
+      ? await getRideByOtp(explicitOtp)
+      : await getLatestActiveRideByDriverPhone(String(driverPhone).trim());
+
+    const incident = await createDriverIncident({
+      rideId: ride?.ride_id ?? null,
+      otpCode: ride?.otp_code ?? explicitOtp,
+      driverPhone: String(driverPhone).trim(),
+      reason: String(reason).trim().toLowerCase(),
+      lat:
+        location?.lat === undefined || location?.lat === null
+          ? null
+          : Number(location.lat),
+      lng:
+        location?.lng === undefined || location?.lng === null
+          ? null
+          : Number(location.lng),
+      nearestGarage,
+      reportedAt: reportedAt || new Date().toISOString(),
+    });
+
+    if (ride?.otp_code) {
+      emitTripEvent(String(ride.otp_code), {
+        type: "driver_incident",
+        message: `Driver reported ${String(reason).toLowerCase()} issue`,
+        level: "high",
+        incident: {
+          reason: String(reason).toLowerCase(),
+          reportedAt: incident.reported_at,
+          location:
+            incident.lat !== null && incident.lng !== null
+              ? { lat: Number(incident.lat), lng: Number(incident.lng) }
+              : null,
+          nearestGarage: incident.nearest_garage_name
+            ? {
+                name: incident.nearest_garage_name,
+                phone: incident.nearest_garage_phone,
+                distanceKm: incident.nearest_garage_distance_km,
+              }
+            : null,
+        },
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      incident,
+      rideOtpCode: ride?.otp_code || explicitOtp || null,
     });
   }),
 );
@@ -239,7 +323,8 @@ router.post(
 router.post(
   "/join-driver",
   asyncHandler(async (req, res) => {
-    const { otpCode, driverPhone } = req.body || {};
+    const { otpCode, driverPhone, pickupLat, pickupLng, pickupLabel } =
+      req.body || {};
 
     if (!otpCode || !driverPhone) {
       return res.status(400).json({
@@ -251,6 +336,18 @@ router.post(
     const ride = await joinRideByOtpAsDriver({
       otpCode: String(otpCode).trim(),
       driverPhone,
+      pickupLat:
+        pickupLat === undefined || pickupLat === null
+          ? null
+          : Number(pickupLat),
+      pickupLng:
+        pickupLng === undefined || pickupLng === null
+          ? null
+          : Number(pickupLng),
+      pickupLabel:
+        typeof pickupLabel === "string" && pickupLabel.trim()
+          ? pickupLabel.trim()
+          : null,
     });
 
     const passengerView = await getRideOtpPassengerView(ride.otp_code);
@@ -337,6 +434,32 @@ router.post(
     res.json({
       success: true,
       ride: passengerView,
+    });
+  }),
+);
+
+router.post(
+  "/availability-location",
+  asyncHandler(async (req, res) => {
+    const { driverPhone, lat, lng, timestamp } = req.body || {};
+
+    if (!driverPhone || lat === undefined || lng === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "driverPhone, lat and lng are required",
+      });
+    }
+
+    const driver = await updateDriverAvailabilityLocation({
+      phone: String(driverPhone).trim(),
+      lat: Number(lat),
+      lng: Number(lng),
+      timestamp,
+    });
+
+    res.json({
+      success: true,
+      driver,
     });
   }),
 );

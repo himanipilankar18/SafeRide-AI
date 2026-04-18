@@ -45,6 +45,8 @@ export type DriverIncidentRecord = {
 const GARAGE_CACHE_KEY = "saferide_cached_nearby_garages";
 const HOSPITAL_CACHE_KEY = "saferide_cached_nearby_hospitals";
 const INCIDENT_KEY = "saferide_driver_vehicle_issue";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -578,6 +580,27 @@ export const reportDriverIncident = (incident: DriverIncidentRecord) => {
   try {
     window.localStorage.setItem(INCIDENT_KEY, JSON.stringify(incident));
     window.dispatchEvent(new Event("saferide-driver-incident"));
+
+    const driverPhone = String(
+      window.localStorage.getItem("phoneNumber") || "",
+    ).trim();
+    if (driverPhone) {
+      void fetch(`${API_BASE_URL}/rides/incident`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          driverPhone,
+          reason: incident.reason,
+          location: incident.location,
+          reportedAt: incident.reportedAt,
+          nearestGarage: incident.nearestGarage,
+        }),
+      }).catch(() => {
+        // Keep local signal working even if backend sync fails.
+      });
+    }
   } catch {
     // Ignore localStorage event failures.
   }

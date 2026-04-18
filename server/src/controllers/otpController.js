@@ -1,10 +1,16 @@
 import { sendOtpViaSms, getOtpProvider } from "../config/twilio.js";
-import { sendOtpViaVerify, checkOtpViaVerify, isVerifyConfigured } from "../config/verify.js";
+import {
+  sendOtpViaVerify,
+  checkOtpViaVerify,
+  isVerifyConfigured,
+} from "../config/verify.js";
+import jwt from "jsonwebtoken";
 
 // In-memory store for OTP (in production, use database)
 const otpStore = new Map();
 const exposeOtpInResponse = process.env.EXPOSE_OTP_IN_RESPONSE === "true";
 const otpProvider = getOtpProvider();
+const verificationTokenSecret = process.env.JWT_SECRET || "dev-secret";
 
 /**
  * Generate a random 6-digit OTP
@@ -28,7 +34,8 @@ export const sendOtp = async (phoneNumber, userType = "passenger") => {
     if (!phoneNumber || !isValidE164(phoneNumber)) {
       return {
         success: false,
-        message: "Invalid phone number. Use international format like +15551234567.",
+        message:
+          "Invalid phone number. Use international format like +15551234567.",
       };
     }
 
@@ -46,15 +53,18 @@ export const sendOtp = async (phoneNumber, userType = "passenger") => {
       if (!isVerifyConfigured()) {
         return {
           success: false,
-          message: "Twilio Verify is not configured. Please set TWILIO_VERIFY_SERVICE_SID.",
+          message:
+            "Twilio Verify is not configured. Please set TWILIO_VERIFY_SERVICE_SID.",
         };
       }
 
       const verifySent = await sendOtpViaVerify(phoneNumber);
-      if (!verifySent) {
+      if (!verifySent?.success) {
         return {
           success: false,
-          message: "Failed to send OTP via Twilio Verify. Please try again.",
+          message:
+            verifySent?.error ||
+            "Failed to send OTP via Twilio Verify. Please try again.",
         };
       }
 
@@ -130,18 +140,12 @@ export const verifyOtp = async (phoneNumber, otp) => {
     if (!stored) {
       return {
         success: false,
-        message: "No OTP found for this phone number. Please request a new one.",
+        message:
+          "No OTP found for this phone number. Please request a new one.",
       };
     }
 
     if (otpProvider === "verify") {
-      if (!stored) {
-        return {
-          success: false,
-          message: "No OTP found for this phone number. Please request a new one.",
-        };
-      }
-
       const verifyResult = await checkOtpViaVerify(phoneNumber, otp);
       if (!verifyResult.approved) {
         stored.attempts += 1;
@@ -149,23 +153,37 @@ export const verifyOtp = async (phoneNumber, otp) => {
           otpStore.delete(phoneNumber);
           return {
             success: false,
-            message: "Too many failed attempts. Please request a new OTP.",
+            message:
+              verifyResult.error ||
+              "Too many failed attempts. Please request a new OTP.",
           };
         }
         otpStore.set(phoneNumber, stored);
         return {
           success: false,
-          message: `Invalid OTP. ${5 - stored.attempts} attempts remaining.`,
+          message:
+            verifyResult.error ||
+            `Invalid OTP. ${5 - stored.attempts} attempts remaining.`,
         };
       }
 
       const userType = stored.userType || "passenger";
       otpStore.delete(phoneNumber);
+      const verificationToken = jwt.sign(
+        {
+          phoneNumber,
+          userType,
+          purpose: "otp-verification",
+        },
+        verificationTokenSecret,
+        { expiresIn: "10m" },
+      );
       return {
         success: true,
         message: "OTP verified successfully.",
         userType,
         phoneNumber,
+        verificationToken,
       };
     }
 
@@ -200,12 +218,22 @@ export const verifyOtp = async (phoneNumber, otp) => {
     // OTP is valid
     const userType = stored.userType;
     otpStore.delete(phoneNumber);
+    const verificationToken = jwt.sign(
+      {
+        phoneNumber,
+        userType,
+        purpose: "otp-verification",
+      },
+      verificationTokenSecret,
+      { expiresIn: "10m" },
+    );
 
     return {
       success: true,
       message: "OTP verified successfully.",
       userType,
       phoneNumber,
+      verificationToken,
     };
   } catch (error) {
     console.error("Error in verifyOtp:", error);

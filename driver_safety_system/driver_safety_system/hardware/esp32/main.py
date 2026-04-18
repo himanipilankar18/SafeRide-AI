@@ -1,7 +1,5 @@
-import sys
 import time
 import machine
-import uselect
 
 # -------------------------
 # Hardware Configuration
@@ -13,37 +11,35 @@ BUZZER = machine.Pin(15, machine.Pin.OUT)
 BUTTON_PIN = machine.Pin(19, machine.Pin.IN, machine.Pin.PULL_UP)
 
 # -------------------------
-# TEST MODE (very low sound)
+# Runtime mode
 # -------------------------
-TEST_MODE = True
+TEST_MODE = False
 
 # -------------------------
 # Timing Configuration
 # -------------------------
-BLINK_INTERVAL_MS = 500
+BLINK_INTERVAL_MS = 400
 FAILSAFE_TIMEOUT_MS = 3000
-LOOP_DELAY_MS = 20
+LOOP_DELAY_MS = 10
 BUTTON_DEBOUNCE_MS = 300
 
 if TEST_MODE:
-    # VERY QUIET MODE (testing)
-    WARNING_BUZZ_ON_MS = 10
-    WARNING_BUZZ_OFF_MS = 3000
+    WARNING_BUZZ_ON_MS = 60
+    WARNING_BUZZ_OFF_MS = 900
 
-    CRITICAL_BUZZ_ON_MS = 20
-    CRITICAL_BUZZ_OFF_MS = 1500
+    CRITICAL_BUZZ_ON_MS = 90
+    CRITICAL_BUZZ_OFF_MS = 180
 else:
-    # NORMAL DEMO MODE
-    WARNING_BUZZ_ON_MS = 100
-    WARNING_BUZZ_OFF_MS = 1000
+    WARNING_BUZZ_ON_MS = 120
+    WARNING_BUZZ_OFF_MS = 700
 
-    CRITICAL_BUZZ_ON_MS = 120
-    CRITICAL_BUZZ_OFF_MS = 120
+    CRITICAL_BUZZ_ON_MS = 140
+    CRITICAL_BUZZ_OFF_MS = 80
 
 # -------------------------
 # Runtime State
 # -------------------------
-current_state = None
+current_state = "O"
 failsafe_active = False
 last_valid_cmd_ms = time.ticks_ms()
 
@@ -59,10 +55,16 @@ last_button_state = BUTTON_PIN.value()
 last_button_press_ms = time.ticks_ms()
 
 # -------------------------
-# Non-blocking serial
+# Serial/UART
 # -------------------------
-poller = uselect.poll()
-poller.register(sys.stdin, uselect.POLLIN)
+uart = None
+uart_rx_buffer = b""
+
+try:
+    # Common UART mapping for ESP32 (USB/TTL bridge).
+    uart = machine.UART(0, baudrate=115200, timeout=0)
+except Exception:
+    uart = None
 
 # -------------------------
 # Helpers
@@ -180,11 +182,50 @@ def check_button(now_ms):
 
     last_button_state = current_button_state
 
+def read_serial_command():
+    global uart_rx_buffer
+
+    if uart is None:
+        return None
+
+    try:
+        chunk = uart.read()
+    except Exception:
+        return None
+
+    if not chunk:
+        return None
+
+    uart_rx_buffer += chunk
+
+    for cmd in (b"O", b"N", b"W", b"C"):
+        if cmd in uart_rx_buffer:
+            uart_rx_buffer = b""
+            try:
+                return cmd.decode("ascii")
+            except Exception:
+                return None
+
+    if len(uart_rx_buffer) > 64:
+        uart_rx_buffer = uart_rx_buffer[-16:]
+
+    return None
+
 # -------------------------
 # Startup
 # -------------------------
 all_off()
-print("ESP32 ready (quiet test mode)")
+
+for pin in (GREEN_LED, YELLOW_LED, RED_LED):
+    pin.on()
+    time.sleep_ms(140)
+    pin.off()
+
+BUZZER.on()
+time.sleep_ms(120)
+BUZZER.off()
+
+print("ESP32 ready")
 print("Waiting for commands: O / N / W / C")
 
 # -------------------------
@@ -193,33 +234,22 @@ print("Waiting for commands: O / N / W / C")
 while True:
     now_ms = time.ticks_ms()
 
-    try:
-        events = poller.poll(0)
+    cmd = read_serial_command()
+    if cmd in ("O", "N", "W", "C"):
+        last_valid_cmd_ms = now_ms
 
-        if events:
-            ch = sys.stdin.read(1)
+        if cmd == "O":
+            failsafe_armed = False
+        else:
+            failsafe_armed = True
 
-            if ch is not None:
-                cmd = ch.strip().upper()
+        if failsafe_active:
+            failsafe_active = False
+            print("FAILSAFE CLEARED")
 
-                if cmd in ("O", "N", "W", "C"):
-                    last_valid_cmd_ms = now_ms
-
-                    if cmd == "O":
-                        failsafe_armed = False
-                    else:
-                        failsafe_armed = True
-
-                    if failsafe_active:
-                        failsafe_active = False
-                        print("FAILSAFE CLEARED")
-
-                    if cmd != current_state:
-                        print("RECEIVED:", cmd)
-                        set_state(cmd)
-
-    except Exception:
-        pass
+        if cmd != current_state:
+            print("RECEIVED:", cmd)
+            set_state(cmd)
 
     update_blink(now_ms)
     update_buzzer(now_ms)

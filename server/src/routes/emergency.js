@@ -1,9 +1,12 @@
 import express from "express";
 import { sendSms } from "../config/twilio.js";
 import {
+  getDriverOnboardingByPhone,
   getEmergencyContactsByDriverId,
   getLatestLiveLocationByDriverId,
+  getRideByOtp,
 } from "../db/sqlite.js";
+import { emitTripEvent } from "../liveTracking.js";
 
 const router = express.Router();
 
@@ -69,6 +72,44 @@ const buildLiveTrackingLink = (trip) => {
   return `${base}/api/rides/live-track/${encodeURIComponent(otpCode)}`;
 };
 
+const clipText = (value, maxLength) => {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+};
+
+const buildCompactLocation = (location) => {
+  if (
+    !location ||
+    !Number.isFinite(Number(location.lat)) ||
+    !Number.isFinite(Number(location.lng))
+  ) {
+    return "unavailable";
+  }
+
+  return `${Number(location.lat).toFixed(3)},${Number(location.lng).toFixed(3)}`;
+};
+
+const buildGoogleMapsLink = (location) => {
+  if (
+    !location ||
+    !Number.isFinite(Number(location.lat)) ||
+    !Number.isFinite(Number(location.lng))
+  ) {
+    return "unavailable";
+  }
+
+  return `https://maps.google.com/?q=${Number(location.lat).toFixed(3)},${Number(location.lng).toFixed(3)}`;
+};
+
+const ensureTrialLength = (body) =>
+  clipText(body.replace(/[\n\r]+/g, " "), 150);
+
 const buildEmergencyMessage = ({
   passenger,
   driver,
@@ -76,43 +117,28 @@ const buildEmergencyMessage = ({
   location,
   timestamp,
 }) => {
-  const passengerText =
-    passenger?.name || passenger?.phoneNumber || "Passenger";
-  const driverText =
-    driver?.name || driver?.phoneNumber
-      ? `${driver?.name || "Assigned driver"}${driver?.phoneNumber ? ` (${driver.phoneNumber})` : ""}`
-      : "Not assigned";
-  const sourceText = trip?.sourceLabel || formatPoint(trip?.source);
-  const destinationText =
-    trip?.destinationLabel || formatPoint(trip?.destination);
-  const carModel = driver?.carModel || driver?.vehicleModel || "Unknown model";
-  const carNumber =
+  const passengerText = clipText(
+    passenger?.name || passenger?.phoneNumber || "Passenger",
+    20,
+  );
+  const driverName = clipText(driver?.name || "driver", 14);
+  const driverPhone = clipText(driver?.phoneNumber || "", 13);
+  const carModel = clipText(
+    driver?.carModel || driver?.vehicleModel || "car",
+    12,
+  );
+  const carNumber = clipText(
     driver?.carNumber ||
-    driver?.numberPlate ||
-    driver?.vehicleNumber ||
-    "Unknown plate";
-  const locationText = formatPoint(location);
-  const mapLink =
-    location &&
-    Number.isFinite(Number(location.lat)) &&
-    Number.isFinite(Number(location.lng))
-      ? `https://maps.google.com/?q=${Number(location.lat)},${Number(location.lng)}`
-      : "Unavailable";
-  const liveTrackingLink = buildLiveTrackingLink(trip);
+      driver?.numberPlate ||
+      driver?.vehicleNumber ||
+      "plate",
+    12,
+  );
+  const mapLink = buildGoogleMapsLink(location);
 
-  return [
-    "SOS alert from SafeRide.",
-    `${passengerText} triggered an emergency alert.`,
-    `Driver: ${driverText}`,
-    `Car: ${carModel} (${carNumber})`,
-    `Source: ${sourceText}`,
-    `Destination: ${destinationText}`,
-    `Current location: ${locationText}`,
-    `Map: ${mapLink}`,
-    `Live tracking: ${liveTrackingLink}`,
-    `Time: ${timestamp || new Date().toISOString()}`,
-    "Please call them or contact emergency services if they do not respond.",
-  ].join("\n");
+  return ensureTrialLength(
+    `SOS ${passengerText}. D ${driverName}${driverPhone ? `/${driverPhone}` : ""}. V ${carModel}/${carNumber}. Map ${mapLink}`,
+  );
 };
 
 const buildPoliceMessage = ({
@@ -122,44 +148,28 @@ const buildPoliceMessage = ({
   location,
   timestamp,
 }) => {
-  const passengerText =
-    passenger?.phoneNumber || passenger?.name || "Passenger";
-  const driverText =
-    driver?.name || driver?.phoneNumber
-      ? `${driver?.name || "Assigned driver"}${driver?.phoneNumber ? ` (${driver.phoneNumber})` : ""}`
-      : "Not assigned";
-  const vehicleText = driver?.vehicleDetails || "Unknown vehicle";
-  const carModel = driver?.carModel || driver?.vehicleModel || "Unknown model";
-  const carNumber =
+  const passengerText = clipText(
+    passenger?.phoneNumber || passenger?.name || "Passenger",
+    18,
+  );
+  const driverName = clipText(driver?.name || "driver", 14);
+  const driverPhone = clipText(driver?.phoneNumber || "", 13);
+  const carModel = clipText(
+    driver?.carModel || driver?.vehicleModel || "car",
+    12,
+  );
+  const carNumber = clipText(
     driver?.carNumber ||
-    driver?.numberPlate ||
-    driver?.vehicleNumber ||
-    "Unknown plate";
-  const sourceText = trip?.sourceLabel || formatPoint(trip?.source);
-  const destinationText =
-    trip?.destinationLabel || formatPoint(trip?.destination);
-  const locationText = formatPoint(location);
-  const mapLink =
-    location &&
-    Number.isFinite(Number(location.lat)) &&
-    Number.isFinite(Number(location.lng))
-      ? `https://maps.google.com/?q=${Number(location.lat)},${Number(location.lng)}`
-      : "Unavailable";
-  const liveTrackingLink = buildLiveTrackingLink(trip);
+      driver?.numberPlate ||
+      driver?.vehicleNumber ||
+      "plate",
+    12,
+  );
+  const mapLink = buildGoogleMapsLink(location);
 
-  return [
-    "SafeRide emergency escalation.",
-    `Passenger: ${passengerText}`,
-    `Driver: ${driverText}`,
-    `Vehicle: ${vehicleText}`,
-    `Car model: ${carModel}`,
-    `Number plate: ${carNumber}`,
-    `Route: ${sourceText} -> ${destinationText}`,
-    `Passenger location: ${locationText}`,
-    `Map: ${mapLink}`,
-    `Live tracking: ${liveTrackingLink}`,
-    `Time: ${timestamp || new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
-  ].join("\n");
+  return ensureTrialLength(
+    `SOS ${passengerText}. D ${driverName}${driverPhone ? `/${driverPhone}` : ""}. V ${carModel}/${carNumber}. Map ${mapLink}`,
+  );
 };
 
 router.post("/alert", async (req, res) => {
@@ -173,16 +183,39 @@ router.post("/alert", async (req, res) => {
       timestamp,
     } = req.body;
 
-    if (!Array.isArray(contacts) || contacts.length === 0) {
+    let recipients = Array.isArray(contacts)
+      ? contacts.map(cleanContact).filter((contact) => contact.phone)
+      : [];
+
+    if (recipients.length === 0) {
+      const otpCode = String(trip?.otpCode || trip?.otp_code || "").trim();
+      if (otpCode) {
+        const ride = await getRideByOtp(otpCode);
+        const driverPhone = String(
+          driver?.phoneNumber || ride?.driver_phone || "",
+        ).trim();
+
+        if (driverPhone) {
+          const onboarding = await getDriverOnboardingByPhone(driverPhone);
+          if (onboarding?.user_id) {
+            const dbContacts = await getEmergencyContactsByDriverId(
+              Number(onboarding.user_id),
+            );
+            recipients = dbContacts
+              .map(cleanContact)
+              .filter((contact) => contact.phone);
+          }
+        }
+      }
+    }
+
+    if (recipients.length === 0) {
       return res.status(400).json({
         success: false,
         message: "At least one emergency contact is required",
       });
     }
 
-    const recipients = contacts
-      .map(cleanContact)
-      .filter((contact) => contact.phone);
     if (recipients.length === 0) {
       return res.status(400).json({
         success: false,
@@ -232,10 +265,21 @@ router.post("/alert", async (req, res) => {
 
     res.status(200).json({
       success: sentCount > 0,
+      partialSuccess: sentCount > 0 && failedResults.length > 0,
       message,
       sentCount,
       results,
     });
+
+    const otpCode = String(trip?.otpCode || trip?.otp_code || "").trim();
+    if (otpCode) {
+      emitTripEvent(otpCode, {
+        type: "emergency_alert",
+        level: sentCount > 0 ? "high" : "medium",
+        message,
+        sentCount,
+      });
+    }
   } catch (error) {
     console.error("Error in /api/emergency/alert endpoint:", error);
     res.status(500).json({
@@ -312,11 +356,22 @@ router.post("/dispatch", async (req, res) => {
 
     res.status(sentCount > 0 ? 200 : 502).json({
       success: sentCount > 0,
+      partialSuccess: sentCount > 0 && sentCount < results.length,
       message: `Sent ${sentCount} of ${results.length} emergency messages`,
       sentCount,
       totalRecipients: results.length,
       results,
     });
+
+    const otpCode = String(trip?.otpCode || trip?.otp_code || "").trim();
+    if (otpCode) {
+      emitTripEvent(otpCode, {
+        type: "emergency_alert",
+        level: sentCount > 0 ? "high" : "medium",
+        message: `Sent ${sentCount} of ${results.length} emergency messages`,
+        sentCount,
+      });
+    }
   } catch (error) {
     console.error("Error in /api/emergency/dispatch endpoint:", error);
     res.status(500).json({
